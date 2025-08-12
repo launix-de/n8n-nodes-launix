@@ -55,22 +55,24 @@ export class LaunixNode implements INodeType {
 
 	methods = {
 		listSearch: {
-			searchTables: async function (this: ILoadOptionsFunctions): Promise<INodeListSearchResult> {
+			searchTables: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 
 				//const nodeOptions = this.getNodeParameter('options', 0) as IDataObject;
 
-				const response = await this.helpers.request(credentials.baseurl + '/FOP/Index/api', {
+				const apiinfo = await this.helpers.request(credentials.baseurl + '/FOP/Index/api', {
 					method: 'GET',
 					headers: {
 						'Authorization': 'Bearer ' + credentials.token,
-					}
+					},
+					json: true
 				});
 
-				const apiinfo = response.json();
 				var tables = [];
 				for (var classname in apiinfo.tables) {
-					tables.push({name: apiinfo.tables[classname].descSingle, value: classname});
+					if (!filter || apiinfo.tables[classname].descSingle.contains(filter)) {
+						tables.push({name: apiinfo.tables[classname].descSingle, value: classname});
+					}
 				}
 
 				return {
