@@ -168,7 +168,7 @@ export class LaunixNode implements INodeType {
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
 				if (operation === 'list') {
-					let params = this.getNodeParameter('filterparams', itemIndex, {}) as IDataObject;
+					let params = JSON.parse(this.getNodeParameter('filterparams', itemIndex, {}) as string);
 					url += '?' + Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k] as string));
 				}
 				const result = await this.helpers.request(url, {
