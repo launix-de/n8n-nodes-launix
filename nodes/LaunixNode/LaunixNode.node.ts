@@ -63,6 +63,7 @@ export class LaunixNode implements INodeType {
 					{ name: 'Edit', value: 'edit', description: 'Update an item', action: 'Update an item' },
 					{ name: 'List', value: 'list', description: 'Retrieve a list of items', action: 'Retrieve a list of items' },
 					{ name: 'View', value: 'view', description: 'Retrieve an item', action: 'Retrieve an item' },
+					{ name: 'Custom API', value: 'custom', description: 'Other API call', action: 'Other API call' },
 				],
 				description: 'What do you want to perform on the data',
 			},
@@ -99,6 +100,22 @@ export class LaunixNode implements INodeType {
 				},
 				description: 'Add data from the fields',
 			},
+			{
+				displayName: 'Filter and Sort Parameters',
+				name: 'filters',
+				type: 'json',
+				default: "{\n  \"filter_user_ID\": \"1\"\n  \"sort_user\": \"username ASC\"\n}",
+				required: true,
+				displayOptions: {
+					show: {
+						operation: [
+							'list',
+						],
+					}
+				},
+				description: 'Specify the GET parameters for that dataview',
+			},
+			/* TODO: custom call selector according to table, e.g. send campaign mails or such */
 		],
 	};
 
@@ -120,7 +137,7 @@ export class LaunixNode implements INodeType {
 				var tables = [];
 				for (var classname in apiinfo.tables) {
 					if (!filter || apiinfo.tables[classname].descSingle.toUpperCase().includes(filter.toUpperCase())) {
-						tables.push({name: apiinfo.tables[classname].descSingle, value: classname});
+						tables.push({name: apiinfo.tables[classname].descSingle + ' (' + apiinfo.tables[classname].tblname + ')', value: classname});
 					}
 				}
 
@@ -150,6 +167,10 @@ export class LaunixNode implements INodeType {
 				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
+				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
+					let params = this.getNodeParameter('filters', itemIndex, {}) as IDataObject;
+					url += '?' + Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k] as string));
+				}
 				const result = await this.helpers.request(url, {
 					method: operation === 'edit' || operation === 'create' ? 'POST' : 'GET',
 					headers: {
@@ -166,6 +187,8 @@ export class LaunixNode implements INodeType {
 					item.json = { id: result };
 				} else if (operation === 'edit') {
 					item.json = { result: result };
+				} else if (operation === 'list') {
+					item.json = result;
 				} else {
 					item.json = { data: result };
 				}
