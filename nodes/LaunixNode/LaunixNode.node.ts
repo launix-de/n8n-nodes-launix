@@ -5,7 +5,7 @@ import type {
 	INodeTypeDescription,
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
-import type { ILoadOptionsFunctions, INodeListSearchResult } from 'n8n-workflow';
+import type { IDataObject, ILoadOptionsFunctions, INodeListSearchResult } from 'n8n-workflow';
 
 export class LaunixNode implements INodeType {
 	description: INodeTypeDescription = {
@@ -50,6 +50,55 @@ export class LaunixNode implements INodeType {
 				placeholder: 'Select a Table...',
 				description: 'The table you want to work on',
 			},
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				default: 'view',
+				required: true,
+				options: [
+					{ name: 'Create', value: 'create', description: 'Insert an item', action: 'Insert an item' },
+					{ name: 'Delete', value: 'delete', description: 'Delete an item permanently', action: 'Delete an item permanently' },
+					{ name: 'Edit', value: 'edit', description: 'Update an item', action: 'Update an item' },
+					{ name: 'List', value: 'list', description: 'Retrieve a list of items', action: 'Retrieve a list of items' },
+					{ name: 'View', value: 'view', description: 'Retrieve an item', action: 'Retrieve an item' },
+				],
+				description: 'What do you want to perform on the data',
+			},
+			{
+				displayName: 'Dataset ID',
+				name: 'id',
+				type: 'string',
+				default: "1",
+				required: true,
+				displayOptions: {
+					show: {
+						operation: [
+							'view',
+							'edit',
+							'delete',
+						],
+					}
+				},
+				description: 'Which dataset do you want to view/edit/delete',
+			},
+			{
+				displayName: 'Data',
+				name: 'data',
+				type: 'json',
+				default: "{}",
+				required: true,
+				displayOptions: {
+					show: {
+						operation: [
+							'create',
+							'edit',
+						],
+					}
+				},
+				description: 'Add data from the fields',
+			},
 		],
 	};
 
@@ -87,20 +136,39 @@ export class LaunixNode implements INodeType {
 	// with whatever the user has entered.
 	// You can make async calls and use `await`.
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
+		const credentials = await this.getCredentials('launixCredentialsApi');
 		const items = this.getInputData();
 
 		let item: INodeExecutionData;
-		let myString: string;
+		const table = (this.getNodeParameter('table', 0, {}) as IDataObject).value;
+		const operation = (this.getNodeParameter('operation', 0, 'view') as string);
 
-		// Iterates over all input items and add the key "myString" with the
-		// value the parameter "myString" resolves to.
-		// (This could be a different value for each item in case it contains an expression)
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			try {
-				myString = this.getNodeParameter('myString', itemIndex, '') as string;
 				item = items[itemIndex];
+				let url = credentials.baseurl + '/TablesAPI/' + table + '/' + operation;
+				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
+					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
+				}
+				const result = await this.helpers.request(url, {
+					method: operation === 'edit' || operation === 'create' ? 'POST' : 'GET',
+					headers: {
+						'Authorization': 'Bearer ' + credentials.token,
+					},
+					body: operation === 'edit' || operation === 'create' ? this.getNodeParameter('data', itemIndex, '{}') as string : undefined,
+					json: true
+				});
+				if (result['error']) throw result['error'];
 
-				item.json.myString = myString;
+				if (operation === 'delete') {
+					item.json = { deleted: result };
+				} else if (operation === 'create') {
+					item.json = { id: result };
+				} else if (operation === 'edit') {
+					item.json = { result: result };
+				} else {
+					item.json = { data: result };
+				}
 			} catch (error) {
 				// This node should never fail but we want to showcase how
 				// to handle errors.

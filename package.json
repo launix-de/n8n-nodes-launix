@@ -1,7 +1,7 @@
 {
   "name": "n8n-nodes-launix",
-  "version": "0.1.5",
-  "description": "n8n Nodes for interaction with Launix products",
+  "version": "0.2.4",
+  "description": "n8n Nodes for interaction with Launix products, especially ERP, CRM and DMS systems",
   "keywords": [
     "n8n-community-node-package"
   ],
