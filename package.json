@@ -1,19 +1,19 @@
 {
-  "name": "n8n-nodes-<...>",
+  "name": "n8n-nodes-launix",
   "version": "0.1.0",
-  "description": "",
+  "description": "n8n Nodes for interaction with Launix products",
   "keywords": [
     "n8n-community-node-package"
   ],
   "license": "MIT",
-  "homepage": "",
+  "homepage": "https://launix.de",
   "author": {
-    "name": "",
-    "email": ""
+    "name": "Carl-Philip Hänsch",
+    "email": "info@launix.de"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/<...>/n8n-nodes-<...>.git"
+    "url": "https://github.com/launix-de/n8n-nodes-launix.git"
   },
   "engines": {
     "node": ">=20.15"

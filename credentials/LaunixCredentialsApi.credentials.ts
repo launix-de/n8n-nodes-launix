@@ -5,25 +5,25 @@ import {
 	INodeProperties,
 } from 'n8n-workflow';
 
-export class ExampleCredentialsApi implements ICredentialType {
-	name = 'exampleCredentialsApi';
-	displayName = 'Example Credentials API';
+export class LaunixCredentialsApi implements ICredentialType {
+	name = 'launixCredentialsApi';
+	displayName = 'Launix Credentials API';
 
-	documentationUrl = 'https://your-docs-url';
+	documentationUrl = 'https://launix.de';
 
 	properties: INodeProperties[] = [
 		// The credentials to get from user and save encrypted.
 		// Properties can be defined exactly in the same way
 		// as node properties.
 		{
-			displayName: 'User Name',
-			name: 'username',
+			displayName: 'Base URL of the software',
+			name: 'baseurl',
 			type: 'string',
 			default: '',
 		},
 		{
-			displayName: 'Password',
-			name: 'password',
+			displayName: 'Auth Token',
+			name: 'token',
 			type: 'string',
 			typeOptions: {
 				password: true,
@@ -38,22 +38,18 @@ export class ExampleCredentialsApi implements ICredentialType {
 	authenticate: IAuthenticateGeneric = {
 		type: 'generic',
 		properties: {
-			auth: {
-				username: '={{ $credentials.username }}',
-				password: '={{ $credentials.password }}',
-			},
-			qs: {
-				// Send this as part of the query string
-				n8n: 'rocks',
-			},
+			headers: {
+				//baseurl: '={{ $credentials.baseurl }}',
+				Authorization: '=Bearer {{ $credentials.token }}',
+			}
 		},
 	};
 
 	// The block below tells how this credential can be tested
 	test: ICredentialTestRequest = {
 		request: {
-			baseURL: 'https://example.com/',
-			url: '',
+			url: '={{ $credentials.baseurl }}/FOP/Index/api',
 		},
 	};
 }
+

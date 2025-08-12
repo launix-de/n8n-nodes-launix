@@ -6,19 +6,26 @@ import type {
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
 
-export class ExampleNode implements INodeType {
+export class LaunixNode implements INodeType {
 	description: INodeTypeDescription = {
-		displayName: 'Example Node',
-		name: 'exampleNode',
-		group: ['transform'],
+		displayName: 'Launix API',
+		name: 'launixNode',
+		icon: { light: 'file:logo.svg', 'dark': 'file:logo.svg' },
+		group: ['transform'], // trigger, input, transform, output
 		version: 1,
-		description: 'Basic Example Node',
+		description: 'Launix API',
 		defaults: {
-			name: 'Example Node',
+			name: 'Hello Node',
 		},
 		inputs: [NodeConnectionType.Main],
 		outputs: [NodeConnectionType.Main],
 		usableAsTool: true,
+		credentials: [
+			{
+				name: 'launixCredentialsApi',
+				required: true,
+			}
+		],
 		properties: [
 			// Node properties which the user gets displayed and
 			// can change on the node.
