@@ -167,7 +167,7 @@ export class LaunixNode implements INodeType {
 				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
-				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
+				if (operation === 'list') {
 					let params = this.getNodeParameter('filterparams', itemIndex, {}) as IDataObject;
 					url += '?' + Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k] as string));
 				}
