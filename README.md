@@ -20,29 +20,42 @@ Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes
 
 ## Operations
 
-_List the operations supported by your node._
+This node supports the following operations:
+
+- **Create** – Insert a new record  
+- **Custom Action** – Run a custom action (e.g., `Invoice-Send`)  
+- **Delete** – Permanently delete a record  
+- **Edit** – Update an existing record  
+- **List** – Retrieve a list of records  
+- **View** – Retrieve a single record  
 
 ## Credentials
 
-_If users need to authenticate with the app/service, provide details here. You should include prerequisites (such as signing up with the service), available authentication methods, and how to set them up._
+To use this node, you need **Launix API credentials**.
+
+1. Log into your Launix product (e.g., ERP system).
+2. Create an API user or use your admin account. Obtain an API key in the user settings.  
+3. Copy the base URL from your launix product (e.g. https://demo2.launix.de/)
+3. Enter these details into n8n credentials of type **Launix Credentials API**. 
 
 ## Compatibility
 
-_State the minimum n8n version, as well as which versions you test against. You can also include any known version incompatibility issues._
+- **Minimum n8n version:** 1.106.3
+- Tested with: 1.106.3
+- No known incompatibility issues.
 
 ## Usage
 
-_This is an optional section. Use it to help users with any difficult or confusing aspects of the node._
-
-_By the time users are looking for community nodes, they probably already know n8n basics. But if you expect new users, you can link to the [Try it out](https://docs.n8n.io/try-it-out/) documentation to help them get started._
+Once your credentials are set up, you can use the Launix node in your workflows to perform CRUD operations and special actions with your Launix products.  
+Tip: For complex workflows, you can chain multiple Launix nodes (e.g., Launix: fetch data → filter for empty values → AI workflow → Launix: edit).
 
 ## Resources
 
-* [n8n community nodes documentation](https://docs.n8n.io/integrations/#community-nodes)
-* _Link to app/service documentation._
+- [n8n community nodes documentation](https://docs.n8n.io/integrations/#community-nodes)  
+- [Launix website](https://launix.de)
 
 ## Version history
 
-_This is another optional section. If your node has multiple versions, include a short description of available versions and what changed, as well as any compatibility impact._
+- **1.0.0** – Initial release: all CRUD operations supported
 
 
