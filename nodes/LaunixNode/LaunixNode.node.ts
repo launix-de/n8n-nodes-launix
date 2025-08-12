@@ -59,11 +59,11 @@ export class LaunixNode implements INodeType {
 				required: true,
 				options: [
 					{ name: 'Create', value: 'create', description: 'Insert an item', action: 'Insert an item' },
+					{ name: 'Custom Action', value: 'custom', description: 'Custom action call like Invoice-Send', action: 'Custom action' },
 					{ name: 'Delete', value: 'delete', description: 'Delete an item permanently', action: 'Delete an item permanently' },
 					{ name: 'Edit', value: 'edit', description: 'Update an item', action: 'Update an item' },
 					{ name: 'List', value: 'list', description: 'Retrieve a list of items', action: 'Retrieve a list of items' },
 					{ name: 'View', value: 'view', description: 'Retrieve an item', action: 'Retrieve an item' },
-					{ name: 'Custom API', value: 'custom', description: 'Other API call', action: 'Other API call' },
 				],
 				description: 'What do you want to perform on the data',
 			},
@@ -102,9 +102,9 @@ export class LaunixNode implements INodeType {
 			},
 			{
 				displayName: 'Filter and Sort Parameters',
-				name: 'filters',
+				name: 'filterparams',
 				type: 'json',
-				default: "{\n  \"filter_user_ID\": \"1\"\n  \"sort_user\": \"username ASC\"\n}",
+				default: "{\n  \"filter_user_ID\": \"1\",\n  \"sort_user\": \"username ASC\"\n}",
 				required: true,
 				displayOptions: {
 					show: {
@@ -168,7 +168,7 @@ export class LaunixNode implements INodeType {
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
 				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
-					let params = this.getNodeParameter('filters', itemIndex, {}) as IDataObject;
+					let params = this.getNodeParameter('filterparams', itemIndex, {}) as IDataObject;
 					url += '?' + Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k] as string));
 				}
 				const result = await this.helpers.request(url, {
