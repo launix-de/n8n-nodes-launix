@@ -70,7 +70,7 @@ export class LaunixNode implements INodeType {
 
 				var tables = [];
 				for (var classname in apiinfo.tables) {
-					if (!filter || apiinfo.tables[classname].descSingle.contains(filter)) {
+					if (!filter || apiinfo.tables[classname].descSingle.includes(filter)) {
 						tables.push({name: apiinfo.tables[classname].descSingle, value: classname});
 					}
 				}
