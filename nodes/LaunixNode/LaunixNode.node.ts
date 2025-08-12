@@ -33,13 +33,20 @@ export class LaunixNode implements INodeType {
 			{
 				displayName: 'Table',
 				name: 'table',
-				type: 'options',
-				typeOptions: {
-					searchListMethod: 'searchTables',
-					searchable: true,
-				},
-				default: '',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
 				required: true,
+				modes: [
+					{
+						displayName: 'Table',
+						name: 'list',
+						type: 'list',
+						typeOptions: {
+							searchListMethod: 'searchTables',
+							searchable: true,
+						},
+					}
+				],
 				placeholder: 'Select a Table...',
 				description: 'The table you want to work on',
 			},
