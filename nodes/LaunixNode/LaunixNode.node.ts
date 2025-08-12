@@ -5,17 +5,18 @@ import type {
 	INodeTypeDescription,
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
+import type { ILoadOptionsFunctions, INodeListSearchResult } from 'n8n-workflow';
 
 export class LaunixNode implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Launix API',
 		name: 'launixNode',
 		icon: { light: 'file:logo.svg', 'dark': 'file:logo.svg' },
-		group: ['transform'], // trigger, input, transform, output
+		group: ['input'], // trigger, input, transform, output
 		version: 1,
-		description: 'Launix API',
+		description: 'Access your Launix software, retrieve data, insert items',
 		defaults: {
-			name: 'Hello Node',
+			name: 'Launix',
 		},
 		inputs: [NodeConnectionType.Main],
 		outputs: [NodeConnectionType.Main],
@@ -30,14 +31,36 @@ export class LaunixNode implements INodeType {
 			// Node properties which the user gets displayed and
 			// can change on the node.
 			{
-				displayName: 'My String',
-				name: 'myString',
-				type: 'string',
+				displayName: 'Table',
+				name: 'table',
+				type: 'options',
+				typeOptions: {
+					searchListMethod: 'searchTables',
+					searchable: true,
+				},
 				default: '',
-				placeholder: 'Placeholder value',
-				description: 'The description text',
+				required: true,
+				placeholder: 'Select a Table...',
+				description: 'The table you want to work on',
 			},
 		],
+	};
+
+	methods = {
+		listSearch: {
+			searchTables: async function (this: ILoadOptionsFunctions): Promise<INodeListSearchResult> {
+				//const credentials = await this.getCredentials<LaunixCredentialsApi>('launixCredentialsApi');
+
+				//const nodeOptions = this.getNodeParameter('options', 0) as IDataObject;
+
+				return {
+					results: [
+						{ name: 'A', value: 'a' },
+						{ name: 'B', value: 'b' },
+					]
+				};
+			}
+		}
 	};
 
 	// The function below is responsible for actually doing whatever this node
