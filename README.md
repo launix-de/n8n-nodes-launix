@@ -2,8 +2,6 @@
 
 This is an n8n community node. It lets you integrate all Launix products in your n8n workflows.
 
-_App/service name_ is _one or two sentences describing the service this node integrates with_.
-
 [n8n](https://n8n.io/) is a [fair-code licensed](https://docs.n8n.io/reference/license/) workflow automation platform.
 
 [Installation](#installation)  
