@@ -5,7 +5,7 @@ import type {
 	INodeTypeDescription,
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
-import type { IDataObject, ILoadOptionsFunctions, INodeListSearchResult } from 'n8n-workflow';
+import type { IDataObject, ILoadOptionsFunctions, INodeListSearchResult, ResourceMapperFields, ResourceMapperField } from 'n8n-workflow';
 
 export class LaunixNode implements INodeType {
 	description: INodeTypeDescription = {
@@ -85,11 +85,28 @@ export class LaunixNode implements INodeType {
 				description: 'Which dataset do you want to view/edit/delete',
 			},
 			{
-				displayName: 'Data',
-				name: 'data',
-				type: 'json',
-				default: "{}",
+				displayName: 'Columns',
+				name: 'columns',
+				type: 'resourceMapper',
+				noDataExpression: true,
+				default: {
+					mappingMode: 'defineBelow',
+					value: null,
+				},
 				required: true,
+				typeOptions: {
+					resourceMapper: {
+						resourceMapperMethod: 'getColumns',
+						mode: 'map',
+						fieldWords: {
+							singular: 'column',
+							plural: 'columns',
+						},
+						addAllFields: true,
+						multiKeyMatch: false,
+						supportAutoMap: false,
+					},
+				},
 				displayOptions: {
 					show: {
 						operation: [
@@ -98,7 +115,6 @@ export class LaunixNode implements INodeType {
 						],
 					}
 				},
-				description: 'Add data from the fields',
 			},
 			{
 				displayName: 'Filter and Sort Parameters',
@@ -121,6 +137,7 @@ export class LaunixNode implements INodeType {
 
 	methods = {
 		listSearch: {
+			// load tables
 			searchTables: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 
@@ -143,6 +160,46 @@ export class LaunixNode implements INodeType {
 
 				return {
 					results: tables
+				};
+			}
+		},
+		resourceMapping: {
+			// load column list of a table
+			getColumns: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
+				const credentials = await this.getCredentials('launixCredentialsApi');
+
+				const tableId = (this.getNodeParameter('table', {}) as IDataObject).value as string;
+
+				const apiinfo = await this.helpers.request(credentials.baseurl + '/FOP/Index/api', {
+					method: 'GET',
+					headers: {
+						'Authorization': 'Bearer ' + credentials.token,
+					},
+					json: true
+				});
+
+				const table = apiinfo['tables'][tableId];
+				if (!table) {
+					return { fields: [] };
+				}
+
+				let columns: ResourceMapperField[] = [];
+				for (let col in table.columns) {
+					columns.push({
+							id: col,
+							displayName: table.columns[col] + ' (' + col + ')',
+							required: false,
+							defaultMatch: false,
+							display: true,
+							type: 'string',
+							canBeUsedToMatch: true,
+							readOnly: false,
+							removed: true,
+					});
+				}
+
+				return {
+					fields: columns
 				};
 			}
 		}
@@ -176,7 +233,7 @@ export class LaunixNode implements INodeType {
 					headers: {
 						'Authorization': 'Bearer ' + credentials.token,
 					},
-					body: operation === 'edit' || operation === 'create' ? this.getNodeParameter('data', itemIndex, '{}') as string : undefined,
+					body: operation === 'edit' || operation === 'create' ? (this.getNodeParameter('columns', itemIndex, {}) as IDataObject).value : undefined,
 					json: true
 				});
 				if (result['error']) throw result['error'];
