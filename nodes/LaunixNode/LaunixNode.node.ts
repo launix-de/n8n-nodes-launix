@@ -227,7 +227,7 @@ export class LaunixNode implements INodeType {
 				if (operation === 'list') {
 					let params = this.getNodeParameter('filterparams', itemIndex, {}) as any;
 					if (typeof params === 'string') params = JSON.parse(params);
-					url += '?' + Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k] as string));
+					url += '?' + Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k] as string)).join('&');
 				}
 				const result = await this.helpers.request(url, {
 					method: operation === 'edit' || operation === 'create' ? 'POST' : 'GET',
