@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg
+   width="9.3450832mm"
+   height="7.0627875mm"
+   viewBox="0 0 9.3450831 7.0627875"
+   version="1.1"
+   id="svg8"
+   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
+   sodipodi:docname="logo.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg"
+   xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+   xmlns:cc="http://creativecommons.org/ns#"
+   xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <defs
+     id="defs2" />
+  <sodipodi:namedview
+     id="base"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:pageopacity="0.0"
+     inkscape:pageshadow="2"
+     inkscape:zoom="5.6"
+     inkscape:cx="-69.017857"
+     inkscape:cy="-0.80357143"
+     inkscape:document-units="mm"
+     inkscape:current-layer="g1162"
+     showgrid="false"
+     fit-margin-top="3.5"
+     fit-margin-right="3.5"
+     fit-margin-bottom="3.5"
+     fit-margin-left="3.5"
+     inkscape:window-width="1920"
+     inkscape:window-height="1043"
+     inkscape:window-x="1920"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:pagecheckerboard="0"
+     inkscape:showpageshadow="2"
+     inkscape:deskcolor="#d1d1d1" />
+  <metadata
+     id="metadata5">
+    <rdf:RDF>
+      <cc:Work
+         rdf:about="">
+        <dc:format>image/svg+xml</dc:format>
+        <dc:type
+           rdf:resource="http://purl.org/dc/dcmitype/StillImage" />
+      </cc:Work>
+    </rdf:RDF>
+  </metadata>
+  <g
+     inkscape:label="Layer 1"
+     inkscape:groupmode="layer"
+     id="layer1"
+     transform="translate(192.90469,-301.02813)">
+    <g
+       transform="matrix(0.26458333,0,0,0.26458333,-376.06154,198.31883)"
+       id="g1162">
+      <polygon
+         transform="translate(330.79038,281.00963)"
+         points="389.009,107.183 379.114,116.767 375.261,120.501 361.456,133.877 369.106,133.877 379.114,124.22 389.126,133.877 396.776,133.877 382.968,120.501 396.776,107.183 "
+         id="polygon120"
+         style="fill:#012854;fill-opacity:1" />
+      <path
+         d="m 703.45138,391.52463 -0.617,-0.6 c -1.887,-1.693 -4.371,-2.732 -7.105,-2.732 h -3.482 l 0.459,0.442 11.643,11.232 1.984,-1.922 1.873,-1.816 z"
+         id="path127"
+         style="fill:#ef2587;fill-opacity:1"
+         inkscape:connector-curvature="0" />
+    </g>
+  </g>
+</svg>

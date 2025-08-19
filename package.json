@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-launix",
-  "version": "1.0.11",
+  "version": "1.1.6",
   "description": "n8n Nodes for interaction with Launix products, especially ERP, CRM and DMS systems",
   "keywords": [
     "n8n-community-node-package"
@@ -36,7 +36,8 @@
       "dist/credentials/LaunixCredentialsApi.credentials.js"
     ],
     "nodes": [
-      "dist/nodes/LaunixNode/LaunixNode.node.js"
+      "dist/nodes/LaunixNode/LaunixNode.node.js",
+      "dist/nodes/LaunixTrigger/LaunixTrigger.node.js"
     ]
   },
   "devDependencies": {
