@@ -187,11 +187,11 @@ export class LaunixNode implements INodeType {
 				for (let col in table.columns) {
 					columns.push({
 							id: col,
-							displayName: table.columns[col] + ' (' + col + ')',
-							required: false,
+							displayName: table.columns[col].desc + ' (' + col + ')',
+							required: table.columns[col].required || false,
 							defaultMatch: false,
 							display: true,
-							type: 'string',
+							type: 'string', // TODO: allow multiple types -> string, number, option
 							canBeUsedToMatch: true,
 							readOnly: false,
 							removed: true,
