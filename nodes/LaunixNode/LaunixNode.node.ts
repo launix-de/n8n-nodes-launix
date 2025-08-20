@@ -194,7 +194,7 @@ export class LaunixNode implements INodeType {
 							type: 'string', // TODO: allow multiple types -> string, number, option
 							canBeUsedToMatch: true,
 							readOnly: false,
-							removed: true,
+							removed: !(table.columns[col].required || false),
 					});
 				}
 
