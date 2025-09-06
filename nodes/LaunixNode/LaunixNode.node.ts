@@ -11,7 +11,7 @@ export class LaunixNode implements INodeType {
 	description: INodeTypeDescription = {
 		displayName: 'Launix API',
 		name: 'launixNode',
-		icon: { light: 'file:logo.svg', 'dark': 'file:logo.svg' },
+		icon: 'file:logo.svg',
 		group: ['input'], // trigger, input, transform, output
 		version: 1,
 		description: 'Access your Launix software, retrieve data, insert items',
@@ -49,6 +49,18 @@ export class LaunixNode implements INodeType {
 				],
 				placeholder: 'Select a Table...',
 				description: 'The table you want to work on',
+				displayOptions: {
+					show: {
+						operation: [
+							'create',
+							'custom',
+							'delete',
+							'edit',
+							'list',
+							'view',
+						],
+					}
+				},
 			},
 			{
 				displayName: 'Operation',
@@ -63,9 +75,25 @@ export class LaunixNode implements INodeType {
 					{ name: 'Delete', value: 'delete', description: 'Delete an item permanently', action: 'Delete an item permanently' },
 					{ name: 'Edit', value: 'edit', description: 'Update an item', action: 'Update an item' },
 					{ name: 'List', value: 'list', description: 'Retrieve a list of items', action: 'Retrieve a list of items' },
+					{ name: 'Retrieve File', value: 'retrieveFile', description: 'Download a file by ID', action: 'Retrieve a file' },
 					{ name: 'View', value: 'view', description: 'Retrieve an item', action: 'Retrieve an item' },
 				],
 				description: 'What do you want to perform on the data',
+			},
+			{
+				displayName: 'File ID',
+				name: 'fileId',
+				type: 'string',
+				default: '',
+				required: true,
+				displayOptions: {
+					show: {
+						operation: [
+							'retrieveFile',
+						],
+					}
+				},
+				description: 'The identifier of the file to download',
 			},
 			{
 				displayName: 'Dataset ID',
@@ -97,7 +125,7 @@ export class LaunixNode implements INodeType {
 				typeOptions: {
 					resourceMapper: {
 						resourceMapperMethod: 'getColumns',
-						mode: 'map',
+						mode: 'upsert',
 						fieldWords: {
 							singular: 'column',
 							plural: 'columns',
@@ -214,12 +242,44 @@ export class LaunixNode implements INodeType {
 		const items = this.getInputData();
 
 		let item: INodeExecutionData;
-		const table = (this.getNodeParameter('table', 0, {}) as IDataObject).value;
 		const operation = (this.getNodeParameter('operation', 0, 'view') as string);
 
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			try {
 				item = items[itemIndex];
+				// Handle special operation: retrieve file binary
+				if (operation === 'retrieveFile') {
+					const fileId = this.getNodeParameter('fileId', itemIndex, '') as string;
+					const url = credentials.baseurl + '/files/' + encodeURIComponent(fileId) + '/x';
+					const response = await this.helpers.request(url, {
+						method: 'GET',
+						headers: {
+							'Authorization': 'Bearer ' + credentials.token,
+						},
+						json: false,
+						encoding: null,
+						resolveWithFullResponse: true,
+					});
+
+					const headers = response.headers || {};
+					let filename = 'file_' + fileId;
+					const contentDisposition: string | undefined = headers['content-disposition'] as string | undefined;
+					if (contentDisposition) {
+						const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(contentDisposition);
+						if (match) {
+							filename = decodeURIComponent(match[1] || match[2]);
+						}
+					}
+					const contentType = (headers['content-type'] as string | undefined) || 'application/octet-stream';
+					const binaryData = await this.helpers.prepareBinaryData(response.body as any, filename, contentType);
+					item.binary = item.binary || {};
+					item.binary['data'] = binaryData;
+					item.json = { fileId, fileName: filename } as IDataObject;
+					continue;
+				}
+
+				// Default table-based operations
+				const table = (this.getNodeParameter('table', 0, {}) as IDataObject).value as string;
 				let url = credentials.baseurl + '/TablesAPI/' + table + '/' + operation;
 				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
