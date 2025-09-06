@@ -28,8 +28,25 @@ export class LaunixNode implements INodeType {
 			}
 		],
 		properties: [
-			// Node properties which the user gets displayed and
-			// can change on the node.
+			{
+				displayName: 'Operation',
+				name: 'operation',
+				type: 'options',
+				noDataExpression: true,
+				default: 'view',
+				required: true,
+				options: [
+					{ name: 'Create', value: 'create', description: 'Insert an item', action: 'Insert an item' },
+					{ name: 'Custom Action', value: 'custom', description: 'Custom action call like Invoice-Send', action: 'Custom action' },
+					{ name: 'Delete', value: 'delete', description: 'Delete an item permanently', action: 'Delete an item permanently' },
+					{ name: 'Edit', value: 'edit', description: 'Update an item', action: 'Update an item' },
+					{ name: 'List', value: 'list', description: 'Retrieve a list of items', action: 'Retrieve a list of items' },
+					{ name: 'Retrieve File', value: 'retrieveFile', description: 'Download a file by ID', action: 'Retrieve a file' },
+					{ name: 'Upload File', value: 'uploadFile', description: 'Upload a file from binary', action: 'Upload a file' },
+					{ name: 'View', value: 'view', description: 'Retrieve an item', action: 'Retrieve an item' },
+				],
+				description: 'What do you want to perform on the data',
+			},
 			{
 				displayName: 'Table',
 				name: 'table',
@@ -61,25 +78,6 @@ export class LaunixNode implements INodeType {
 						],
 					}
 				},
-			},
-			{
-				displayName: 'Operation',
-				name: 'operation',
-				type: 'options',
-				noDataExpression: true,
-				default: 'view',
-				required: true,
-				options: [
-					{ name: 'Create', value: 'create', description: 'Insert an item', action: 'Insert an item' },
-					{ name: 'Custom Action', value: 'custom', description: 'Custom action call like Invoice-Send', action: 'Custom action' },
-					{ name: 'Delete', value: 'delete', description: 'Delete an item permanently', action: 'Delete an item permanently' },
-					{ name: 'Edit', value: 'edit', description: 'Update an item', action: 'Update an item' },
-					{ name: 'List', value: 'list', description: 'Retrieve a list of items', action: 'Retrieve a list of items' },
-					{ name: 'Retrieve File', value: 'retrieveFile', description: 'Download a file by ID', action: 'Retrieve a file' },
-					{ name: 'Upload File', value: 'uploadFile', description: 'Upload a file from binary', action: 'Upload a file' },
-					{ name: 'View', value: 'view', description: 'Retrieve an item', action: 'Retrieve an item' },
-				],
-				description: 'What do you want to perform on the data',
 			},
 			{
 				displayName: 'Binary Property',
@@ -139,6 +137,7 @@ export class LaunixNode implements INodeType {
 				},
 				required: true,
 				typeOptions: {
+					loadOptionsDependsOn: ['table.value', 'operation'],
 					resourceMapper: {
 						resourceMapperMethod: 'getColumns',
 						mode: 'upsert',
@@ -213,7 +212,9 @@ export class LaunixNode implements INodeType {
 			getColumns: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 
-				const tableId = (this.getNodeParameter('table', {}) as IDataObject).value as string;
+				// Read the currently selected table for this node; ensure we use index 0 in load options context
+				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
+				const tableId = (tableParam as any).value as string;
 
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
 				const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
@@ -229,18 +230,22 @@ export class LaunixNode implements INodeType {
 					return { fields: [] };
 				}
 
+				const operation = this.getNodeParameter('operation', 'view') as string;
+				const isCreate = operation === 'create';
 				let columns: ResourceMapperField[] = [];
 				for (let col in table.columns) {
+					const baseRequired = table.columns[col].required || false;
+					const required = isCreate && baseRequired;
 					columns.push({
 							id: col,
 							displayName: table.columns[col].desc + ' (' + col + ')',
-							required: table.columns[col].required || false,
+							required,
 							defaultMatch: false,
 							display: true,
 							type: 'string', // TODO: allow multiple types -> string, number, option
 							canBeUsedToMatch: true,
 							readOnly: false,
-							removed: !(table.columns[col].required || false),
+							removed: !required,
 					});
 				}
 
