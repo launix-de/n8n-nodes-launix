@@ -274,7 +274,7 @@ export class LaunixNode implements INodeType {
 				// Handle special operation: retrieve file binary
 				if (operation === 'retrieveFile') {
 					const fileId = this.getNodeParameter('fileId', itemIndex, '') as string;
-					const url = baseUrl + '/FOP/Files/' + encodeURIComponent(fileId) + '/x';
+					const url = baseUrl + '/files/' + encodeURIComponent(fileId) + '/x';
 					const response = await this.helpers.request(url, {
 						method: 'GET',
 						headers: {
