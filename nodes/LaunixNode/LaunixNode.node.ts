@@ -76,9 +76,25 @@ export class LaunixNode implements INodeType {
 					{ name: 'Edit', value: 'edit', description: 'Update an item', action: 'Update an item' },
 					{ name: 'List', value: 'list', description: 'Retrieve a list of items', action: 'Retrieve a list of items' },
 					{ name: 'Retrieve File', value: 'retrieveFile', description: 'Download a file by ID', action: 'Retrieve a file' },
+					{ name: 'Upload File', value: 'uploadFile', description: 'Upload a file from binary', action: 'Upload a file' },
 					{ name: 'View', value: 'view', description: 'Retrieve an item', action: 'Retrieve an item' },
 				],
 				description: 'What do you want to perform on the data',
+			},
+			{
+				displayName: 'Binary Property',
+				name: 'binaryPropertyName',
+				type: 'string',
+				default: 'data',
+				required: true,
+				displayOptions: {
+					show: {
+						operation: [
+							'uploadFile',
+						],
+					}
+				},
+				description: 'Name of the binary property containing the file to upload',
 			},
 			{
 				displayName: 'File ID',
@@ -171,7 +187,8 @@ export class LaunixNode implements INodeType {
 
 				//const nodeOptions = this.getNodeParameter('options', 0) as IDataObject;
 
-				const apiinfo = await this.helpers.request(credentials.baseurl + '/FOP/Index/api', {
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
 					method: 'GET',
 					headers: {
 						'Authorization': 'Bearer ' + credentials.token,
@@ -198,7 +215,8 @@ export class LaunixNode implements INodeType {
 
 				const tableId = (this.getNodeParameter('table', {}) as IDataObject).value as string;
 
-				const apiinfo = await this.helpers.request(credentials.baseurl + '/FOP/Index/api', {
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
 					method: 'GET',
 					headers: {
 						'Authorization': 'Bearer ' + credentials.token,
@@ -239,6 +257,7 @@ export class LaunixNode implements INodeType {
 	// You can make async calls and use `await`.
 	async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
 		const credentials = await this.getCredentials('launixCredentialsApi');
+		const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
 		const items = this.getInputData();
 
 		let item: INodeExecutionData;
@@ -250,7 +269,7 @@ export class LaunixNode implements INodeType {
 				// Handle special operation: retrieve file binary
 				if (operation === 'retrieveFile') {
 					const fileId = this.getNodeParameter('fileId', itemIndex, '') as string;
-					const url = credentials.baseurl + '/files/' + encodeURIComponent(fileId) + '/x';
+					const url = baseUrl + '/FOP/Files/' + encodeURIComponent(fileId) + '/x';
 					const response = await this.helpers.request(url, {
 						method: 'GET',
 						headers: {
@@ -278,9 +297,45 @@ export class LaunixNode implements INodeType {
 					continue;
 				}
 
+				// Handle special operation: upload file from binary
+				if (operation === 'uploadFile') {
+					const binaryPropertyName = this.getNodeParameter('binaryPropertyName', itemIndex, 'data') as string;
+					if (!item.binary || !item.binary[binaryPropertyName]) {
+						throw new NodeOperationError(this.getNode(), `Binary property '${binaryPropertyName}' is missing on input item`, { itemIndex });
+					}
+					const bin = item.binary[binaryPropertyName]!;
+					const buffer = await this.helpers.getBinaryDataBuffer(itemIndex, binaryPropertyName);
+					const filename = (bin.fileName as string) || 'upload.bin';
+					const contentType = (bin.mimeType as string) || 'application/octet-stream';
+
+					const url = baseUrl + '/FOP/Files/upload?x=-1';
+					const formData: any = {
+						'file_-1': {
+							value: buffer,
+							options: {
+								filename,
+								contentType,
+							},
+						},
+					};
+
+					const result = await this.helpers.request(url, {
+						method: 'POST',
+						headers: {
+							'Authorization': 'Bearer ' + credentials.token,
+						},
+						formData,
+						json: true,
+					});
+
+					if (result['error']) throw result['error'];
+					item.json = { uploaded: true, result } as IDataObject;
+					continue;
+				}
+
 				// Default table-based operations
 				const table = (this.getNodeParameter('table', 0, {}) as IDataObject).value as string;
-				let url = credentials.baseurl + '/TablesAPI/' + table + '/' + operation;
+				let url = baseUrl + '/TablesAPI/' + table + '/' + operation;
 				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
