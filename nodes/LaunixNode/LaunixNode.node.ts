@@ -70,14 +70,63 @@ export class LaunixNode implements INodeType {
 					show: {
 						operation: [
 							'create',
-							'custom',
 							'delete',
 							'edit',
 							'list',
 							'view',
+							'custom',
 						],
 					}
 				},
+			},
+			{
+				displayName: 'Action',
+				name: 'customAction',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
+				required: true,
+				modes: [
+					{
+						displayName: 'Action',
+						name: 'list',
+						type: 'list',
+						typeOptions: {
+							searchListMethod: 'searchCustomActions',
+							searchable: true,
+						},
+					},
+				],
+				typeOptions: {
+					loadOptionsDependsOn: ['table.value'],
+				},
+				displayOptions: {
+					show: {
+						operation: [
+							'custom',
+						],
+					}
+				},
+				description: 'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+			},
+			{
+				displayName: 'Action Parameters',
+				name: 'actionParams',
+				type: 'resourceMapper',
+				noDataExpression: true,
+				default: { mappingMode: 'defineBelow', value: null },
+				typeOptions: {
+					loadOptionsDependsOn: ['table.value', 'customAction.value'],
+					resourceMapper: {
+						resourceMapperMethod: 'getActionParams',
+						mode: 'map',
+						fieldWords: { singular: 'parameter', plural: 'parameters' },
+						addAllFields: false,
+						multiKeyMatch: false,
+						supportAutoMap: false,
+					},
+				},
+				displayOptions: { show: { operation: ['custom'] } },
+				description: 'Provide values for the action\'s parameters as defined by the API descriptor',
 			},
 			{
 				displayName: 'Binary Property',
@@ -121,6 +170,7 @@ export class LaunixNode implements INodeType {
 							'view',
 							'edit',
 							'delete',
+							'custom',
 						],
 					}
 				},
@@ -206,6 +256,31 @@ export class LaunixNode implements INodeType {
 					results: tables
 				};
 			}
+			,
+			// load actions for selected table
+			searchCustomActions: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+				const credentials = await this.getCredentials('launixCredentialsApi');
+				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
+				const tableId = (tableParam as any).value as string;
+				if (!tableId) return { results: [] };
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
+					method: 'GET',
+					headers: { 'Authorization': 'Bearer ' + credentials.token },
+					json: true,
+				});
+
+				const table = apiinfo['tables'][tableId];
+				if (!table) return { results: [] };
+				const actions = (table.actions || []) as Array<any>;
+				const results = actions
+					.filter((a: any) => {
+						const label = (a.title || a.path || '').toString();
+						return !filter || label.toUpperCase().includes(filter.toUpperCase());
+					})
+					.map((a: any) => ({ name: (a.title || a.path || ''), value: a.path }));
+				return { results };
+			}
 		},
 		resourceMapping: {
 			// load column list of a table
@@ -252,6 +327,34 @@ export class LaunixNode implements INodeType {
 				return {
 					fields: columns
 				};
+			},
+			// load param list for a selected custom action
+			getActionParams: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
+				const credentials = await this.getCredentials('launixCredentialsApi');
+				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
+				const tableId = (tableParam as any).value as string;
+				const actionParam = this.getNodeParameter('customAction', 0, {}) as IDataObject;
+				const selectedPath = (actionParam as any).value as string;
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
+					method: 'GET',
+					headers: { 'Authorization': 'Bearer ' + credentials.token },
+					json: true
+				});
+
+				const actionMeta = (apiinfo.tables?.[tableId]?.actions || []).find((a: any) => a.path === selectedPath) || { params: [] };
+				const fields: ResourceMapperField[] = (actionMeta.params || []).map((p: string) => ({
+					id: p,
+					displayName: p,
+					required: false,
+					defaultMatch: false,
+					display: true,
+					type: 'string',
+					canBeUsedToMatch: false,
+					readOnly: false,
+					removed: false,
+				}));
+				return { fields };
 			}
 		}
 	};
@@ -340,6 +443,112 @@ export class LaunixNode implements INodeType {
 
 				// Default table-based operations
 				const table = (this.getNodeParameter('table', 0, {}) as IDataObject).value as string;
+				if (operation === 'custom') {
+					// Selected action path from resource locator (e.g., "Tables/Brief/pdf")
+					const actionParam = this.getNodeParameter('customAction', itemIndex, {}) as IDataObject;
+					const actionPath = (actionParam as any).value as string;
+					// User-provided parameter values for the action
+					const actionParamsWrapper = this.getNodeParameter('actionParams', itemIndex, { value: {} }) as IDataObject;
+					const actionParams = ((actionParamsWrapper as any).value || {}) as Record<string, string | number | boolean>;
+					// Fallback for common param 'id'
+					const id = this.getNodeParameter('id', itemIndex, '') as string;
+
+					// Load API descriptor to resolve method and expected params for the action
+					let httpMethod = 'GET';
+					let expectedParams: string[] = [];
+					try {
+						const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
+							method: 'GET',
+							headers: { 'Authorization': 'Bearer ' + credentials.token },
+							json: true,
+						});
+						// Resolve table class key if user provided tblname/descSingle via expression
+						let tableKey = table;
+						if (!apiinfo.tables?.[tableKey]) {
+							for (const [k, t] of Object.entries(apiinfo.tables || {})) {
+								if ((t as any)?.tblname?.toLowerCase() === String(table).toLowerCase() || (t as any)?.descSingle?.toLowerCase() === String(table).toLowerCase()) {
+									tableKey = k;
+									break;
+								}
+							}
+						}
+						const tableActions = (apiinfo.tables?.[tableKey]?.actions || []) as Array<any>;
+						const meta = tableActions.find((a: any) => a.path === actionPath);
+						if (meta) {
+							httpMethod = (meta.httpMethod || 'GET').toUpperCase();
+							expectedParams = Array.isArray(meta.params) ? meta.params : [];
+						}
+					} catch (e) {
+						// Ignore descriptor load failure; proceed with defaults
+					}
+
+					// Build final params honoring descriptor order; include id fallback if declared but not supplied
+					const finalParams: Record<string, string> = {};
+					for (const p of expectedParams) {
+						if (p in actionParams && actionParams[p] !== undefined && actionParams[p] !== null) {
+							finalParams[p] = String(actionParams[p] as any);
+						} else if (p === 'id' && id) {
+							finalParams[p] = String(id);
+						}
+					}
+					// Also merge any extra provided params not in descriptor (be permissive)
+					for (const [k, v] of Object.entries(actionParams)) {
+						if (!(k in finalParams) && v !== undefined && v !== null) finalParams[k] = String(v as any);
+					}
+					// Ensure id present if no descriptor but node has it
+					if (!('id' in finalParams) && id) finalParams['id'] = String(id);
+
+					// Compose request
+					const path = '/' + String(actionPath).replace(/^\/+/, '');
+					let url = baseUrl + path;
+					const method = httpMethod || 'GET';
+
+					const requestOptions: any = {
+						method,
+						headers: { 'Authorization': 'Bearer ' + credentials.token },
+						json: false,
+						encoding: null,
+						resolveWithFullResponse: true,
+					};
+					if (method === 'GET') {
+						const qs = Object.keys(finalParams)
+							.map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(finalParams[k] ?? ''))
+							.join('&');
+						if (qs) url += (url.includes('?') ? '&' : '?') + qs;
+					} else {
+						// For non-GET, send JSON body when possible
+						requestOptions.json = true;
+						requestOptions.body = finalParams;
+					}
+
+					const response = await this.helpers.request(url, requestOptions);
+					const headers = (response.headers || {}) as any;
+					const contentType = (headers['content-type'] as string | undefined) || '';
+					if (/application\/pdf/i.test(contentType)) {
+						// Try to infer a filename
+						let filename = `${table}_${finalParams['id'] || 'action'}_${actionPath.split('/').pop()}.pdf`;
+						const cd: string | undefined = headers['content-disposition'] as string | undefined;
+						if (cd) {
+							const m = /filename\*=UTF-8''([^;]+)|filename=\"?([^";]+)\"?/i.exec(cd);
+							if (m) filename = decodeURIComponent(m[1] || m[2]);
+						}
+						const binaryData = await this.helpers.prepareBinaryData(response.body as any, filename, 'application/pdf');
+						item.binary = item.binary || {};
+						item.binary['data'] = binaryData;
+						item.json = { ok: true, fileName: filename, url } as IDataObject;
+					} else if (/application\/json/i.test(contentType)) {
+						try {
+							const json = JSON.parse(response.body?.toString() || '{}');
+							item.json = json as IDataObject;
+						} catch {
+							item.json = { ok: true, status: response.statusCode, contentType, url } as IDataObject;
+						}
+					} else {
+						item.json = { ok: true, status: response.statusCode, contentType, url } as IDataObject;
+					}
+					continue;
+				}
+
 				let url = baseUrl + '/TablesAPI/' + table + '/' + operation;
 				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
