@@ -79,12 +79,11 @@ export class LaunixTrigger implements INodeType {
 
 				//const nodeOptions = this.getNodeParameter('options', 0) as IDataObject;
 
-				const apiinfo = await this.helpers.request(credentials.baseurl + '/FOP/Index/api', {
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: 'GET',
-					headers: {
-						'Authorization': 'Bearer ' + credentials.token,
-					},
-					json: true
+					url: baseUrl + '/FOP/Index/api',
+					json: true,
 				});
 
 				var tables = [];
@@ -112,7 +111,6 @@ export class LaunixTrigger implements INodeType {
 				}
 
 				const baseUrl = credentials.baseurl as string;
-				const token = credentials.token as string;
 
 				const table = (this.getNodeParameter('table', {}) as IDataObject).value as string;
 				const action = this.getNodeParameter('action') as string;
@@ -123,12 +121,9 @@ export class LaunixTrigger implements INodeType {
 
 
 				// 1. Clean up old triggers for same webhook
-				const listResponse = await this.helpers.httpRequest({
+				const listResponse = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: 'GET',
 					url: `${baseUrl}/TablesAPI/Fop_event/list`,
-					headers: {
-						Authorization: `Bearer ${token}`,
-					},
 					qs: {
 						[`filter_fop_event_${table}:reaction:webhook:url`]: webhookUrl,
 					},
@@ -138,12 +133,9 @@ export class LaunixTrigger implements INodeType {
 				if (Array.isArray(listResponse?.items)) {
 					for (const item of listResponse.items) {
 						if (item.ID) {
-							await this.helpers.httpRequest({
+							await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 								method: 'GET',
 								url: `${baseUrl}/TablesAPI/Fop_event/delete`,
-								headers: {
-									Authorization: `Bearer ${token}`,
-								},
 								qs: { id: item.ID },
 							});
 						}
@@ -159,13 +151,9 @@ export class LaunixTrigger implements INodeType {
 					comment: `n8n Trigger ${n8nBaseUrl}workflow/${workflowId}`,
 				};
 
-				const response = await this.helpers.httpRequest({
+				const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: 'POST',
 					url: `${baseUrl}/TablesAPI/Fop_event/create`,
-					headers: {
-						Authorization: `Bearer ${token}`,
-						'Content-Type': 'application/json',
-					},
 					body,
 					json: true,
 				});
@@ -188,7 +176,6 @@ export class LaunixTrigger implements INodeType {
 				}
 
 				const baseUrl = credentials.baseurl as string;
-				const token = credentials.token as string;
 
 				const staticData = this.getWorkflowStaticData('node');
 				const triggerId = staticData.triggerId as string;
@@ -197,12 +184,9 @@ export class LaunixTrigger implements INodeType {
 					return true; // Nothing to delete
 				}
 
-				await this.helpers.httpRequest({
+				await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: 'GET',
 					url: `${baseUrl}/TablesAPI/Fop_event/delete`,
-					headers: {
-						Authorization: `Bearer ${token}`,
-					},
 					qs: { id: triggerId },
 				});
 
@@ -218,7 +202,6 @@ export class LaunixTrigger implements INodeType {
 				}
 
 				const baseUrl = credentials.baseurl as string;
-				const token = credentials.token as string;
 
 				const staticData = this.getWorkflowStaticData('node');
 				const triggerId = staticData.triggerId as string | undefined;
@@ -228,12 +211,9 @@ export class LaunixTrigger implements INodeType {
 				}
 
 				try {
-					const response = await this.helpers.httpRequest({
+					const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 						method: 'GET',
 						url: `${baseUrl}/TablesAPI/Fop_event/list`,
-						headers: {
-							Authorization: `Bearer ${token}`,
-						},
 						qs: {
 							filter_ID: triggerId,
 						},

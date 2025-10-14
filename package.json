@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-launix",
-  "version": "1.2.11",
+  "version": "1.2.12",
   "description": "n8n Nodes for interaction with Launix products, especially ERP, CRM and DMS systems",
   "keywords": [
     "n8n-community-node-package"
@@ -46,9 +46,13 @@
     "eslint-plugin-n8n-nodes-base": "^1.16.3",
     "gulp": "^5.0.0",
     "prettier": "^3.5.3",
-    "typescript": "^5.8.2"
+    "typescript": "^5.8.2",
+    "n8n-workflow": "^1.120.0"
   },
   "peerDependencies": {
-    "n8n-workflow": "^1.82.0"
+    "n8n-workflow": "^1.120.0"
+  },
+  "dependencies": {
+    "form-data": "^4.0.0"
   }
 }

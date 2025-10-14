@@ -6,9 +6,11 @@ import type {
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
 import type { IDataObject, ILoadOptionsFunctions, INodeListSearchResult, ResourceMapperFields, ResourceMapperField } from 'n8n-workflow';
+import FormData from 'form-data';
 
 export class LaunixNode implements INodeType {
-	description: INodeTypeDescription = {
+
+	description: INodeTypeDescription = ({
 		displayName: 'Launix API',
 		name: 'launixNode',
 		icon: 'file:logo.svg',
@@ -118,7 +120,7 @@ export class LaunixNode implements INodeType {
 					loadOptionsDependsOn: ['table.value', 'customAction.value'],
 					resourceMapper: {
 						resourceMapperMethod: 'getActionParams',
-						mode: 'map',
+						mode: 'upsert',
 						fieldWords: { singular: 'parameter', plural: 'parameters' },
 						addAllFields: false,
 						multiKeyMatch: false,
@@ -190,7 +192,7 @@ export class LaunixNode implements INodeType {
 					loadOptionsDependsOn: ['table.value', 'operation'],
 					resourceMapper: {
 						resourceMapperMethod: 'getColumns',
-						mode: 'map',
+						mode: 'upsert',
 						fieldWords: {
 							singular: 'column',
 							plural: 'columns',
@@ -226,7 +228,7 @@ export class LaunixNode implements INodeType {
 			},
 			/* TODO: custom call selector according to table, e.g. send campaign mails or such */
 		],
-	};
+	} as unknown as INodeTypeDescription);
 
 	methods = {
 		listSearch: {
@@ -237,12 +239,10 @@ export class LaunixNode implements INodeType {
 				//const nodeOptions = this.getNodeParameter('options', 0) as IDataObject;
 
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
+				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: 'GET',
-					headers: {
-						'Authorization': 'Bearer ' + credentials.token,
-					},
-					json: true
+					url: baseUrl + '/FOP/Index/api',
+					json: true,
 				});
 
 				var tables = [];
@@ -264,9 +264,9 @@ export class LaunixNode implements INodeType {
 				const tableId = (tableParam as any).value as string;
 				if (!tableId) return { results: [] };
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
+				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: 'GET',
-					headers: { 'Authorization': 'Bearer ' + credentials.token },
+					url: baseUrl + '/FOP/Index/api',
 					json: true,
 				});
 
@@ -292,12 +292,10 @@ export class LaunixNode implements INodeType {
 				const tableId = (tableParam as any).value as string;
 
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
+				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: 'GET',
-					headers: {
-						'Authorization': 'Bearer ' + credentials.token,
-					},
-					json: true
+					url: baseUrl + '/FOP/Index/api',
+					json: true,
 				});
 
 				const table = apiinfo['tables'][tableId];
@@ -336,10 +334,10 @@ export class LaunixNode implements INodeType {
 				const actionParam = this.getNodeParameter('customAction', 0, {}) as IDataObject;
 				const selectedPath = (actionParam as any).value as string;
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
+				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: 'GET',
-					headers: { 'Authorization': 'Bearer ' + credentials.token },
-					json: true
+					url: baseUrl + '/FOP/Index/api',
+					json: true,
 				});
 
 				const actionMeta = (apiinfo.tables?.[tableId]?.actions || []).find((a: any) => a.path === selectedPath) || { params: [] };
@@ -378,14 +376,12 @@ export class LaunixNode implements INodeType {
 				if (operation === 'retrieveFile') {
 					const fileId = this.getNodeParameter('fileId', itemIndex, '') as string;
 					const url = baseUrl + '/files/' + encodeURIComponent(fileId) + '/x';
-					const response = await this.helpers.request(url, {
+					const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 						method: 'GET',
-						headers: {
-							'Authorization': 'Bearer ' + credentials.token,
-						},
+						url,
 						json: false,
-						encoding: null,
-						resolveWithFullResponse: true,
+						encoding: 'arraybuffer',
+						returnFullResponse: true,
 					});
 
 					const headers = response.headers || {};
@@ -417,22 +413,13 @@ export class LaunixNode implements INodeType {
 					const contentType = (bin.mimeType as string) || 'application/octet-stream';
 
 					const url = baseUrl + '/FOP/Files/upload?x=-1';
-					const formData: any = {
-						'file_-1': {
-							value: buffer,
-							options: {
-								filename,
-								contentType,
-							},
-						},
-					};
+					const form = new FormData();
+					form.append('file_-1', buffer, { filename, contentType });
 
-					const result = await this.helpers.request(url, {
+					const result = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 						method: 'POST',
-						headers: {
-							'Authorization': 'Bearer ' + credentials.token,
-						},
-						formData,
+						url,
+						body: form,
 						json: true,
 					});
 
@@ -457,9 +444,9 @@ export class LaunixNode implements INodeType {
 					let httpMethod = 'GET';
 					let expectedParams: string[] = [];
 					try {
-						const apiinfo = await this.helpers.request(baseUrl + '/FOP/Index/api', {
+						const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 							method: 'GET',
-							headers: { 'Authorization': 'Bearer ' + credentials.token },
+							url: baseUrl + '/FOP/Index/api',
 							json: true,
 						});
 						// Resolve table class key if user provided tblname/descSingle via expression
@@ -521,7 +508,11 @@ export class LaunixNode implements INodeType {
 						requestOptions.body = finalParams;
 					}
 
-					const response = await this.helpers.request(url, requestOptions);
+					const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
+						...requestOptions,
+						url,
+						returnFullResponse: true,
+					});
 					const headers = (response.headers || {}) as any;
 					const contentType = (headers['content-type'] as string | undefined) || '';
 					if (/application\/pdf/i.test(contentType)) {
@@ -558,13 +549,11 @@ export class LaunixNode implements INodeType {
 					if (typeof params === 'string') params = JSON.parse(params);
 					url += '?' + Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k] as string)).join('&');
 				}
-				const result = await this.helpers.request(url, {
+				const result = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: operation === 'edit' || operation === 'create' ? 'POST' : 'GET',
-					headers: {
-						'Authorization': 'Bearer ' + credentials.token,
-					},
+					url,
 					body: operation === 'edit' || operation === 'create' ? (this.getNodeParameter('columns', itemIndex, {}) as IDataObject).value : undefined,
-					json: true
+					json: true,
 				});
 				if (result['error']) throw result['error'];
 
@@ -583,7 +572,7 @@ export class LaunixNode implements INodeType {
 				// This node should never fail but we want to showcase how
 				// to handle errors.
 				if (this.continueOnFail()) {
-					items.push({ json: this.getInputData(itemIndex)[0].json, error, pairedItem: itemIndex });
+					items.push({ json: this.getInputData(itemIndex)[0].json, error, pairedItem: { item: itemIndex } });
 				} else {
 					// Adding `itemIndex` allows other workflows to handle this error
 					if (error.context) {
