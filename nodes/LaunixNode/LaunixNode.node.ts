@@ -5,14 +5,7 @@ import type {
 	INodeTypeDescription,
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
-import type {
-	IDataObject,
-	ILoadOptionsFunctions,
-	INodeListSearchResult,
-	INodePropertyOptions,
-	ResourceMapperFields,
-	ResourceMapperField,
-} from 'n8n-workflow';
+import type { IDataObject, ILoadOptionsFunctions, INodeListSearchResult, ResourceMapperFields, ResourceMapperField } from 'n8n-workflow';
 import FormData from 'form-data';
 
 export class LaunixNode implements INodeType {
@@ -310,195 +303,27 @@ export class LaunixNode implements INodeType {
 					return { fields: [] };
 				}
 
-				const normalizeType = (rawType: unknown): string => {
-					if (!rawType) {
-						return 'string';
-					}
-					if (typeof rawType === 'string') {
-						return rawType.toLowerCase();
-					}
-					if (typeof rawType === 'object' && (rawType as IDataObject).type) {
-						return String((rawType as IDataObject).type).toLowerCase();
-					}
-					return 'string';
-				};
-
-					const toOptionsList = (raw: unknown, preferNumber: boolean): { options: INodePropertyOptions[]; truncated: boolean } => {
-						const MAX_OPTIONS = 200;
-						const options: INodePropertyOptions[] = [];
-						let truncated = false;
-
-					const pushOption = (labelRaw: unknown, valueRaw: unknown) => {
-						if (labelRaw === undefined || labelRaw === null) {
-							return;
-						}
-						let value: string | number | boolean | null | undefined = valueRaw as any;
-						let label = String(labelRaw);
-
-						if (preferNumber) {
-							const numericCandidate = value !== undefined ? Number(value) : Number(label);
-							if (!Number.isNaN(numericCandidate)) {
-								value = numericCandidate;
-							} else if (!Number.isNaN(Number(label))) {
-								value = Number(label);
-							}
-						}
-
-						if (value === undefined || value === null) {
-							value = label;
-						}
-
-						options.push({ name: label, value: value as string | number | boolean });
-					};
-
-					const handleEntry = (entry: unknown, key?: string) => {
-						if (entry === undefined || entry === null) {
-							return;
-						}
-
-						if (typeof entry === 'object') {
-							const data = entry as IDataObject;
-							const label = data.name ?? data.title ?? data.label ?? data.desc ?? data.id ?? key;
-							const value = data.value ?? data.id ?? key ?? label;
-							pushOption(label, value);
-							return;
-						}
-
-						if (key !== undefined) {
-							pushOption(entry, key);
-						} else {
-							pushOption(entry, entry);
-						}
-					};
-
-					if (Array.isArray(raw)) {
-						for (const entry of raw) {
-							handleEntry(entry);
-							if (options.length >= MAX_OPTIONS) {
-								truncated = true;
-								break;
-							}
-						}
-					} else if (raw && typeof raw === 'object') {
-						for (const [key, entry] of Object.entries(raw as IDataObject)) {
-							handleEntry(entry, key);
-							if (options.length >= MAX_OPTIONS) {
-								truncated = true;
-								break;
-							}
-						}
-					}
-
-					return { options, truncated };
-				};
-
-					const ensureBooleanOptions = () => {
-						return [
-							{ name: 'True', value: true },
-							{ name: 'False', value: false },
-						];
-					};
-
-					const operation = this.getNodeParameter('operation', 'view') as string;
-					const isCreate = operation === 'create';
-				const columns: ResourceMapperField[] = [];
-				for (const col of Object.keys(table.columns || {})) {
-					const columnMeta = (table.columns[col] || {}) as IDataObject;
-					const baseRequired = columnMeta.required === true;
+				const operation = this.getNodeParameter('operation', 'view') as string;
+				const isCreate = operation === 'create';
+				let columns: ResourceMapperField[] = [];
+				for (let col in table.columns) {
+					const baseRequired = table.columns[col].required || false;
 					const required = isCreate && baseRequired;
-					const baseLabel = columnMeta.desc ? String(columnMeta.desc) : col;
-					const typeMeta = columnMeta.type as IDataObject | string | undefined;
-					const normalizedType = normalizeType(typeMeta);
-					let fieldType: ResourceMapperField['type'] = 'string';
-					let preferNumberOptions = false;
-					const descriptionParts: string[] = [];
-
-						switch (normalizedType) {
-							case 'number':
-							case 'numeric':
-							case 'decimal':
-							case 'float':
-							case 'double':
-							case 'integer':
-							case 'int':
-								fieldType = 'number';
-								preferNumberOptions = true;
-								break;
-							case 'boolean':
-								fieldType = 'boolean';
-								break;
-							case 'date':
-							case 'datetime':
-							case 'timestamp':
-								fieldType = 'string';
-								break;
-							case 'foreign-key':
-						case 'reference':
-						case 'lookup':
-						case 'fk':
-								fieldType = 'string';
-								break;
-							case 'html':
-								fieldType = 'string';
-								break;
-							case 'file':
-								fieldType = 'string';
-								break;
-						default:
-							fieldType = 'string';
-					}
-
-					const typeInfo = typeof typeMeta === 'object' && typeMeta ? (typeMeta.info as string | undefined) : undefined;
-					if (typeInfo) {
-						descriptionParts.push(typeInfo);
-					}
-					if (typeof columnMeta.info === 'string') {
-						descriptionParts.push(columnMeta.info);
-					}
-
-					let rawOptions: unknown;
-					if (typeof typeMeta === 'object' && typeMeta && typeMeta.options !== undefined) {
-						rawOptions = typeMeta.options;
-					} else if (columnMeta.options !== undefined) {
-						rawOptions = columnMeta.options;
-					}
-
-					let optionsResult = { options: [] as INodePropertyOptions[], truncated: false };
-					if (rawOptions !== undefined) {
-						optionsResult = toOptionsList(rawOptions, preferNumberOptions);
-					}
-
-					if (fieldType === 'boolean' && optionsResult.options.length === 0) {
-						optionsResult = { options: ensureBooleanOptions(), truncated: false };
-					}
-
-					const descriptionText = descriptionParts
-						.map((part) => part.trim())
-						.filter((part, index, array) => part !== '' && array.indexOf(part) === index)
-						.join(' ');
-					const displayNameSuffix = descriptionText ? ` – ${descriptionText}` : '';
-					const displayName = `${baseLabel} (${col})${displayNameSuffix}`;
-					const field: ResourceMapperField = {
-						id: col,
-						displayName,
-						required,
-						defaultMatch: false,
-						display: true,
-						type: optionsResult.options.length > 0 && fieldType !== 'boolean' ? 'options' : fieldType,
-						canBeUsedToMatch: true,
-						readOnly: false,
-						removed: !required,
-					};
-
-					if (optionsResult.options.length > 0) {
-						field.options = optionsResult.options;
-					}
-
-					columns.push(field);
+					columns.push({
+							id: col,
+							displayName: table.columns[col].desc + ' (' + col + ')',
+							required,
+							defaultMatch: false,
+							display: true,
+							type: 'string', // TODO: allow multiple types -> string, number, option
+							canBeUsedToMatch: true,
+							readOnly: false,
+							removed: !required,
+					});
 				}
 
 				return {
-					fields: columns,
+					fields: columns
 				};
 			},
 			// load param list for a selected custom action
