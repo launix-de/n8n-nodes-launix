@@ -192,7 +192,7 @@ export class LaunixNode implements INodeType {
 					loadOptionsDependsOn: ['table.value', 'operation'],
 					resourceMapper: {
 						resourceMapperMethod: 'getColumns',
-						mode: 'upsert',
+						mode: 'add',
 						fieldWords: {
 							singular: 'column',
 							plural: 'columns',
