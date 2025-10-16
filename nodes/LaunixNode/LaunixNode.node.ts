@@ -5,7 +5,14 @@ import type {
 	INodeTypeDescription,
 } from 'n8n-workflow';
 import { NodeConnectionType, NodeOperationError } from 'n8n-workflow';
-import type { IDataObject, ILoadOptionsFunctions, INodeListSearchResult, ResourceMapperFields, ResourceMapperField } from 'n8n-workflow';
+import type {
+	IDataObject,
+	ILoadOptionsFunctions,
+	INodeListSearchResult,
+	INodePropertyOptions,
+	ResourceMapperFields,
+	ResourceMapperField,
+} from 'n8n-workflow';
 import FormData from 'form-data';
 
 export class LaunixNode implements INodeType {
@@ -298,32 +305,326 @@ export class LaunixNode implements INodeType {
 					json: true,
 				});
 
-				const table = apiinfo['tables'][tableId];
+				const table = apiinfo['tables']?.[tableId];
 				if (!table) {
 					return { fields: [] };
 				}
 
 				const operation = this.getNodeParameter('operation', 'view') as string;
 				const isCreate = operation === 'create';
-				let columns: ResourceMapperField[] = [];
-				for (let col in table.columns) {
-					const baseRequired = table.columns[col].required || false;
+
+				const normalizeColumns = (tableColumns: unknown): Array<[string, IDataObject]> => {
+					if (!tableColumns) {
+						return [];
+					}
+					if (Array.isArray(tableColumns)) {
+						return (tableColumns as Array<IDataObject>)
+							.filter((col) => typeof col === 'object' && col && typeof col['id'] === 'string')
+							.map((col) => [col['id'] as string, col]);
+					}
+					return Object.entries(tableColumns as Record<string, IDataObject>);
+				};
+
+				const coerceNumber = (value: unknown): number | undefined => {
+					if (typeof value === 'number' && Number.isFinite(value)) {
+						return value;
+					}
+					if (typeof value === 'string' && value.trim() !== '') {
+						const parsed = Number(value);
+						if (Number.isFinite(parsed)) {
+							return parsed;
+						}
+					}
+					return undefined;
+				};
+
+				const ensureOptionValue = (
+					value: unknown,
+					preferNumeric: boolean,
+				): string | number | boolean => {
+					if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+						return value;
+					}
+					if (preferNumeric) {
+						const numeric = coerceNumber(value);
+						if (numeric !== undefined) {
+							return numeric;
+						}
+					}
+					return String(value ?? '');
+				};
+
+				const toDisplayString = (value: unknown): string => {
+					if (value === null || value === undefined) {
+						return '';
+					}
+					if (typeof value === 'object') {
+						try {
+							return JSON.stringify(value);
+						} catch {
+							return String(value);
+						}
+					}
+					return String(value);
+				};
+
+				const buildStaticOptions = (
+					rawOptions: unknown,
+					preferNumeric: boolean,
+				): INodePropertyOptions[] => {
+					if (!rawOptions) {
+						return [];
+					}
+					const options: INodePropertyOptions[] = [];
+					if (Array.isArray(rawOptions)) {
+						rawOptions.forEach((entry, index) => {
+							if (entry && typeof entry === 'object') {
+								const name = toDisplayString((entry as IDataObject).name ?? (entry as IDataObject).label ?? (entry as IDataObject).desc ?? (entry as IDataObject).value ?? index);
+								const value = ensureOptionValue(
+									(entry as IDataObject).value ?? (entry as IDataObject).id ?? (entry as IDataObject).key ?? (preferNumeric ? index : name),
+									preferNumeric,
+								);
+								options.push({ name, value });
+							} else {
+								const name = toDisplayString(entry);
+								const fallbackValue = preferNumeric ? coerceNumber(entry) ?? index : entry;
+								options.push({
+									name,
+									value: ensureOptionValue(fallbackValue, preferNumeric),
+								});
+							}
+						});
+					} else if (typeof rawOptions === 'object') {
+						Object.entries(rawOptions as Record<string, unknown>).forEach(([key, label]) => {
+							const value = preferNumeric ? coerceNumber(key) ?? key : key;
+							options.push({
+								name: toDisplayString(label ?? key),
+								value: ensureOptionValue(value, preferNumeric),
+							});
+						});
+					}
+					return options;
+				};
+
+				const extractRecords = (response: unknown): IDataObject[] => {
+					if (!response) {
+						return [];
+					}
+					if (Array.isArray(response)) {
+						return response as IDataObject[];
+					}
+					if (typeof response === 'object') {
+						const dataObject = response as IDataObject;
+						const candidates = ['data', 'items', 'records', 'results', 'list'];
+						for (const key of candidates) {
+							const candidate = dataObject[key];
+							if (Array.isArray(candidate)) {
+								return candidate as IDataObject[];
+							}
+						}
+					}
+					return [];
+				};
+
+				const findReadableString = (input: unknown, depth = 0): string | undefined => {
+					if (depth > 4 || input === undefined || input === null) {
+						return undefined;
+					}
+					if (typeof input === 'string') {
+						const trimmed = input.trim();
+						return trimmed ? trimmed : undefined;
+					}
+					if (typeof input === 'number' || typeof input === 'boolean') {
+						return String(input);
+					}
+					if (Array.isArray(input)) {
+						for (const entry of input) {
+							const value = findReadableString(entry, depth + 1);
+							if (value) {
+								return value;
+							}
+						}
+						return undefined;
+					}
+					if (typeof input === 'object') {
+						const preferredKeys = [
+							'name',
+							'Name',
+							'title',
+							'Title',
+							'label',
+							'Label',
+							'desc',
+							'Desc',
+							'description',
+							'Description',
+							'text',
+							'code',
+							'value',
+							'slug',
+							'short',
+							'long',
+						];
+						const objectInput = input as IDataObject;
+						for (const key of preferredKeys) {
+							if (objectInput[key] !== undefined) {
+								const value = findReadableString(objectInput[key], depth + 1);
+								if (value) {
+									return value;
+								}
+							}
+						}
+						for (const value of Object.values(objectInput)) {
+							const readable = findReadableString(value, depth + 1);
+							if (readable) {
+								return readable;
+							}
+						}
+					}
+					return undefined;
+				};
+
+				// Derive a display label and identifier from arbitrary list payloads.
+				const mapRecordToOption = (record: IDataObject): INodePropertyOptions | null => {
+					if (!record) {
+						return null;
+					}
+					const valueCandidates = ['id', 'ID', 'Id', 'value', 'key'];
+					let optionValue: unknown;
+					for (const key of valueCandidates) {
+						if (record[key] !== undefined && record[key] !== null) {
+							optionValue = record[key];
+							break;
+						}
+					}
+					if (optionValue === undefined) {
+						const fallbackKeys = Object.keys(record);
+						optionValue = fallbackKeys.length ? record[fallbackKeys[0]] : undefined;
+					}
+					if (optionValue === undefined) {
+						return null;
+					}
+					const labelCandidates = ['name', 'Name', 'title', 'Title', 'label', 'Label', 'desc', 'Desc', 'description', 'Description'];
+					let optionLabel: unknown;
+					for (const key of labelCandidates) {
+						if (record[key] !== undefined && record[key] !== null) {
+							optionLabel = record[key];
+							break;
+						}
+					}
+					let readableLabel = findReadableString(optionLabel);
+					if (!readableLabel) {
+						readableLabel = findReadableString(record);
+					}
+					const normalizedValue = ensureOptionValue(optionValue, true);
+					const valueAsString = toDisplayString(normalizedValue);
+					let name = readableLabel || valueAsString;
+					if (!name) {
+						name = valueAsString || ''; // final fallback
+					}
+					if (valueAsString && name && !name.includes(valueAsString)) {
+						name = `${name} (${valueAsString})`;
+					}
+					return {
+						name,
+						value: normalizedValue,
+					};
+				};
+
+				const loadReferenceOptions = async (
+					referenceTable: string,
+				): Promise<INodePropertyOptions[]> => {
+					try {
+						const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
+							method: 'POST',
+							url: `${baseUrl}/TablesAPI/${encodeURIComponent(referenceTable)}/list`,
+							json: true,
+							body: {},
+						});
+						const rows = extractRecords(response).slice(0, 200);
+						const seen = new Set<string | number | boolean>();
+						const options: INodePropertyOptions[] = [];
+						for (const row of rows) {
+							const option = mapRecordToOption(row);
+							if (!option) {
+								continue;
+							}
+							if (seen.has(option.value)) {
+								continue;
+							}
+							seen.add(option.value);
+							options.push(option);
+						}
+						return options;
+					} catch {
+						return [];
+					}
+				};
+
+				const columnEntries = normalizeColumns(table.columns);
+				const fields: ResourceMapperField[] = [];
+				for (const [columnId, columnMeta] of columnEntries) {
+					const columnInfo = columnMeta as IDataObject;
+					const baseRequired = (columnInfo.required as boolean) || false;
 					const required = isCreate && baseRequired;
-					columns.push({
-							id: col,
-							displayName: table.columns[col].desc + ' (' + col + ')',
-							required,
-							defaultMatch: false,
-							display: true,
-							type: 'string', // TODO: allow multiple types -> string, number, option
-							canBeUsedToMatch: true,
-							readOnly: false,
-							removed: !required,
-					});
+					const rawType = columnInfo.type;
+					const resolvedType = typeof rawType === 'object' && rawType !== null ? (rawType as IDataObject) : { type: rawType };
+					const infoText = typeof resolvedType['info'] === 'string' ? (resolvedType['info'] as string) : undefined;
+					const typeNameRaw = (resolvedType['type'] ?? rawType ?? 'string') as string;
+					const typeName = typeof typeNameRaw === 'string' ? typeNameRaw.toLowerCase() : 'string';
+					let fieldType: ResourceMapperField['type'] = 'string';
+					let options: INodePropertyOptions[] = [];
+
+					const staticOptions = buildStaticOptions(resolvedType['options'], typeName === 'number');
+					if (staticOptions.length) {
+						options = staticOptions;
+					}
+
+					if (typeName === 'number') {
+						fieldType = options.length ? 'options' : 'number';
+					} else if (typeName === 'boolean') {
+						fieldType = 'boolean';
+					} else if (typeName === 'date' || typeName === 'datetime') {
+						fieldType = 'dateTime';
+					} else if (typeName === 'time') {
+						fieldType = 'time';
+					} else if (typeName === 'foreign-key' || typeName === 'reference') {
+						const referenceTable = resolvedType['references'] ? String(resolvedType['references']) : '';
+						if (referenceTable) {
+							options = await loadReferenceOptions(referenceTable);
+						}
+						fieldType = 'options';
+					} else if (options.length) {
+						fieldType = 'options';
+					} else {
+						fieldType = 'string';
+					}
+
+					const baseLabel = `${columnInfo.desc || columnId} (${columnId})`;
+					const displayName = infoText ? `${baseLabel}: ${infoText}` : baseLabel;
+
+					const field = {
+						id: columnId,
+						displayName,
+						required,
+						defaultMatch: false,
+						display: true,
+						type: fieldType,
+						canBeUsedToMatch: true,
+						readOnly: false,
+						removed: !required,
+					} as ResourceMapperField & { description?: string };
+					if (fieldType === 'options') {
+						field.options = options;
+					}
+					if (infoText) {
+						field.description = infoText;
+					}
+					fields.push(field);
 				}
 
 				return {
-					fields: columns
+					fields,
 				};
 			},
 			// load param list for a selected custom action
