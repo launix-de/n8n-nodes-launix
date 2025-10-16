@@ -15,6 +15,8 @@ import type {
 } from 'n8n-workflow';
 import FormData from 'form-data';
 
+const NULL_SENTINEL = '__NULL__';
+
 export class LaunixNode implements INodeType {
 
 	description: INodeTypeDescription = ({
@@ -484,12 +486,79 @@ export class LaunixNode implements INodeType {
 					return undefined;
 				};
 
+				const collectReadableStrings = (record: IDataObject, exclude?: string): string[] => {
+					const results: string[] = [];
+					const seenStrings = new Set<string>();
+					const seenObjects = new WeakSet<object>();
+
+					const addCandidate = (candidate: string) => {
+						const trimmed = candidate.trim();
+						if (!trimmed) {
+							return;
+						}
+						const normalizedWhitespace = trimmed.replace(/\s+/g, ' ');
+						if (normalizedWhitespace.length < 1 || normalizedWhitespace.length > 30) {
+							return;
+						}
+						if (exclude && normalizedWhitespace === exclude) {
+							return;
+						}
+						const digitsOnly = /^[0-9]+$/.test(normalizedWhitespace);
+						if (digitsOnly && normalizedWhitespace.length <= 2) {
+							return;
+						}
+						const lower = normalizedWhitespace.toLowerCase();
+						if (seenStrings.has(lower)) {
+							return;
+						}
+						seenStrings.add(lower);
+						results.push(normalizedWhitespace);
+					};
+
+					const walk = (value: unknown, depth = 0) => {
+						if (depth > 4 || value === null || value === undefined) {
+							return;
+						}
+						if (typeof value === 'string') {
+							addCandidate(value);
+							return;
+						}
+						if (typeof value === 'number' || typeof value === 'bigint') {
+							addCandidate(String(value));
+							return;
+						}
+						if (typeof value === 'boolean') {
+							addCandidate(value ? 'true' : 'false');
+							return;
+						}
+						if (Array.isArray(value)) {
+							for (const entry of value) {
+								walk(entry, depth + 1);
+							}
+							return;
+						}
+						if (typeof value === 'object') {
+							const obj = value as IDataObject;
+							if (seenObjects.has(obj)) {
+								return;
+							}
+							seenObjects.add(obj);
+							for (const entry of Object.values(obj)) {
+								walk(entry, depth + 1);
+							}
+						}
+					};
+
+					walk(record, 0);
+					return results;
+				};
+
 				// Derive a display label and identifier from arbitrary list payloads.
 				const mapRecordToOption = (record: IDataObject): INodePropertyOptions | null => {
 					if (!record) {
 						return null;
 					}
-					const valueCandidates = ['id', 'ID', 'Id', 'value', 'key'];
+					const valueCandidates = ['ID', 'id', 'Id', 'value', 'key'];
 					let optionValue: unknown;
 					for (const key of valueCandidates) {
 						if (record[key] !== undefined && record[key] !== null) {
@@ -518,12 +587,23 @@ export class LaunixNode implements INodeType {
 					}
 					const normalizedValue = ensureOptionValue(optionValue, true);
 					const valueAsString = toDisplayString(normalizedValue);
-					let name = readableLabel || valueAsString;
-					if (!name) {
-						name = valueAsString || ''; // final fallback
+					const labelParts = collectReadableStrings(record, valueAsString);
+					let nameParts = labelParts;
+					if (!nameParts.length && readableLabel) {
+						nameParts = [readableLabel];
 					}
-					if (valueAsString && name && !name.includes(valueAsString)) {
-						name = `${name} (${valueAsString})`;
+					if (!nameParts.length && valueAsString) {
+						nameParts = [valueAsString];
+					}
+					let name = nameParts.join(' | ');
+					if (!name) {
+						name = valueAsString || '';
+					}
+					if (valueAsString && name) {
+						const idSuffix = `(ID: ${valueAsString})`;
+						if (!name.includes(idSuffix)) {
+							name = `${name} ${idSuffix}`.trim();
+						}
 					}
 					return {
 						name,
@@ -533,6 +613,7 @@ export class LaunixNode implements INodeType {
 
 				const loadReferenceOptions = async (
 					referenceTable: string,
+					nullOptionLabel?: string,
 				): Promise<INodePropertyOptions[]> => {
 					try {
 						const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
@@ -555,6 +636,12 @@ export class LaunixNode implements INodeType {
 							seen.add(option.value);
 							options.push(option);
 						}
+						if (nullOptionLabel !== undefined) {
+							const label = nullOptionLabel.trim() !== '' ? nullOptionLabel : '-';
+							if (!options.some((opt) => opt.value === NULL_SENTINEL)) {
+								options.unshift({ name: label, value: NULL_SENTINEL });
+							}
+						}
 						return options;
 					} catch {
 						return [];
@@ -572,6 +659,9 @@ export class LaunixNode implements INodeType {
 					const infoText = typeof resolvedType['info'] === 'string' ? (resolvedType['info'] as string) : undefined;
 					const typeNameRaw = (resolvedType['type'] ?? rawType ?? 'string') as string;
 					const typeName = typeof typeNameRaw === 'string' ? typeNameRaw.toLowerCase() : 'string';
+					const hasNull = resolvedType['hasNull'] === true || resolvedType['hasNull'] === 'true' || resolvedType['hasNull'] === 1 || resolvedType['hasNull'] === '1';
+					const nullLabelSource = resolvedType['null'];
+					const nullLabel = typeof nullLabelSource === 'string' && nullLabelSource.trim() !== '' ? nullLabelSource : '-';
 					let fieldType: ResourceMapperField['type'] = 'string';
 					let options: INodePropertyOptions[] = [];
 
@@ -591,13 +681,19 @@ export class LaunixNode implements INodeType {
 					} else if (typeName === 'foreign-key' || typeName === 'reference') {
 						const referenceTable = resolvedType['references'] ? String(resolvedType['references']) : '';
 						if (referenceTable) {
-							options = await loadReferenceOptions(referenceTable);
+							options = await loadReferenceOptions(referenceTable, hasNull ? nullLabel : undefined);
 						}
 						fieldType = 'options';
 					} else if (options.length) {
 						fieldType = 'options';
 					} else {
 						fieldType = 'string';
+					}
+
+					if (hasNull && fieldType === 'options') {
+						if (!options.some((opt) => opt.value === NULL_SENTINEL)) {
+							options.unshift({ name: nullLabel, value: NULL_SENTINEL });
+						}
 					}
 
 					const baseLabel = `${columnInfo.desc || columnId} (${columnId})`;
@@ -666,6 +762,23 @@ export class LaunixNode implements INodeType {
 		const credentials = await this.getCredentials('launixCredentialsApi');
 		const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
 		const items = this.getInputData();
+
+		const replaceNullSentinel = (value: unknown): unknown => {
+			if (value === NULL_SENTINEL) {
+				return null;
+			}
+			if (Array.isArray(value)) {
+				return value.map((entry) => replaceNullSentinel(entry));
+			}
+			if (value && typeof value === 'object') {
+				const output: IDataObject = {};
+				for (const [key, entry] of Object.entries(value as IDataObject)) {
+					output[key] = replaceNullSentinel(entry) as any;
+				}
+				return output;
+			}
+			return value;
+		};
 
 		let item: INodeExecutionData;
 		const operation = (this.getNodeParameter('operation', 0, 'view') as string);
@@ -850,10 +963,21 @@ export class LaunixNode implements INodeType {
 					if (typeof params === 'string') params = JSON.parse(params);
 					url += '?' + Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k] as string)).join('&');
 				}
+				let preparedBody: IDataObject | null | undefined;
+				if (operation === 'create' || operation === 'edit') {
+					const columnsWrapper = this.getNodeParameter('columns', itemIndex, { value: null }) as IDataObject;
+					const rawColumns = (columnsWrapper as any).value as IDataObject | null;
+					if (rawColumns !== null && rawColumns !== undefined) {
+						preparedBody = replaceNullSentinel(rawColumns) as IDataObject;
+					} else {
+						preparedBody = rawColumns;
+					}
+				}
+
 				const result = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 					method: operation === 'edit' || operation === 'create' ? 'POST' : 'GET',
 					url,
-					body: operation === 'edit' || operation === 'create' ? (this.getNodeParameter('columns', itemIndex, {}) as IDataObject).value : undefined,
+					body: operation === 'edit' || operation === 'create' ? (preparedBody ?? null) : undefined,
 					json: true,
 				});
 				if (result['error']) throw result['error'];
