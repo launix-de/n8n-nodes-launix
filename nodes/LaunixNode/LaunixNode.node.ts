@@ -777,89 +777,52 @@ export class LaunixNode implements INodeType {
 					}
 				};
 
-				const pickOptionDescription = (data: IDataObject): string | undefined => {
-					const candidate =
-						data['description'] ??
-						data['desc'] ??
-						data['info'] ??
-						data['help'] ??
-						data['tooltip'] ??
-						data['hint'];
-					const description = toDisplayString(candidate);
-					return description ? description : undefined;
-				};
-
 				const buildOptions = (input: unknown): INodePropertyOptions[] => {
-					if (!input) {
+					if (!Array.isArray(input)) {
 						return [];
 					}
 					const options: INodePropertyOptions[] = [];
-					if (Array.isArray(input)) {
-						input.forEach((entry, index) => {
-							if (entry && typeof entry === 'object') {
-								const entryObj = entry as IDataObject;
-								const name = toDisplayString(
-									entryObj['name'] ?? entryObj['label'] ?? entryObj['desc'] ?? entryObj['title'] ?? entryObj['value'] ?? index,
-								);
-								let value: string | number | boolean = entryObj['value'] as any;
-								if (value === undefined) {
-									const candidate = entryObj['id'] ?? entryObj['key'] ?? entryObj['code'];
-									if (typeof candidate === 'number') {
-										value = candidate;
-									} else if (typeof candidate === 'boolean') {
-										value = candidate;
-									} else if (candidate !== undefined) {
-										value = String(candidate);
-									} else {
-										value = String(name);
-									}
-								}
-								const option: INodePropertyOptions = { name, value };
-								const description = pickOptionDescription(entryObj);
-								if (description) {
-									option.description = description;
-								}
-								options.push(option);
-							} else if (entry !== undefined && entry !== null) {
-								const name = toDisplayString(entry);
-								options.push({ name, value: name });
+					for (const entry of input as Array<unknown>) {
+						if (!entry || typeof entry !== 'object') {
+							continue;
+						}
+						const entryObj = entry as IDataObject;
+						const rawValue = entryObj['value'];
+						if (rawValue === undefined || rawValue === null) {
+							continue;
+						}
+						let optionValue: string | number | boolean;
+						if (typeof rawValue === 'string' || typeof rawValue === 'number' || typeof rawValue === 'boolean') {
+							optionValue = rawValue;
+						} else {
+							const fallback = toDisplayString(rawValue);
+							if (!fallback) {
+								continue;
 							}
-						});
-					} else if (typeof input === 'object') {
-						Object.entries(input as Record<string, unknown>).forEach(([key, value]) => {
-							if (value && typeof value === 'object') {
-								const optionObj = value as IDataObject;
-								const name = toDisplayString(
-									optionObj['name'] ?? optionObj['label'] ?? optionObj['desc'] ?? optionObj['title'] ?? optionObj['value'] ?? key,
-								);
-								let optionValue: string | number | boolean = optionObj['value'] as any;
-								if (optionValue === undefined) {
-									if (typeof optionObj['id'] === 'number' || typeof optionObj['id'] === 'boolean') {
-										optionValue = optionObj['id'] as any;
-									} else if (optionObj['id'] !== undefined) {
-										optionValue = String(optionObj['id']);
-									} else {
-										optionValue = key;
-									}
-								}
-								const option: INodePropertyOptions = { name, value: optionValue };
-								const description = pickOptionDescription(optionObj);
-								if (description) {
-									option.description = description;
-								}
-								options.push(option);
-							} else {
-								const name = toDisplayString(value ?? key);
-								const normalizedKey: string | number | boolean =
-									typeof value === 'number' || typeof value === 'boolean'
-										? value
-										: key;
-								options.push({ name, value: normalizedKey });
-							}
-						});
-					} else {
-						const name = toDisplayString(input);
-						options.push({ name, value: name });
+							optionValue = fallback;
+						}
+						const descriptionText = toDisplayString(entryObj['description']);
+						let labelText = descriptionText;
+						if (!labelText) {
+							labelText = toDisplayString(entryObj['label']);
+						}
+						if (!labelText) {
+							labelText = toDisplayString(rawValue);
+						}
+						if (!labelText) {
+							labelText = toDisplayString(optionValue);
+						}
+						if (!labelText) {
+							labelText = String(optionValue);
+						}
+						const option: INodePropertyOptions = {
+							name: labelText,
+							value: optionValue,
+						};
+						if (descriptionText) {
+							option.description = descriptionText;
+						}
+						options.push(option);
 					}
 					return options;
 				};
@@ -936,7 +899,7 @@ export class LaunixNode implements INodeType {
 						type: options.length ? 'options' : 'string',
 						canBeUsedToMatch: false,
 						readOnly: false,
-						removed: false,
+						removed: true,
 					};
 					if (options.length) {
 						field.options = options;
