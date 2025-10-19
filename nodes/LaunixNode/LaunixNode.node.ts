@@ -221,11 +221,28 @@ export class LaunixNode implements INodeType {
 				},
 			},
 			{
-				displayName: 'Filter and Sort Parameters',
+				displayName: 'Filters',
 				name: 'filterparams',
-				type: 'json',
-				default: "{\n  \"filter_user_ID\": \"1\",\n  \"sort_user\": \"username ASC\"\n}",
-				required: true,
+				type: 'resourceMapper',
+				noDataExpression: true,
+				default: {
+					mappingMode: 'defineBelow',
+					value: null,
+				},
+				typeOptions: {
+					loadOptionsDependsOn: ['table.value'],
+					resourceMapper: {
+						resourceMapperMethod: 'getFilters',
+						mode: 'add',
+						fieldWords: {
+							singular: 'filter',
+							plural: 'filters',
+						},
+						addAllFields: false,
+						multiKeyMatch: false,
+						supportAutoMap: false,
+					},
+				},
 				displayOptions: {
 					show: {
 						operation: [
@@ -233,7 +250,7 @@ export class LaunixNode implements INodeType {
 						],
 					}
 				},
-				description: 'Specify the GET parameters for that dataview',
+				description: 'Select filters supported by the chosen table',
 			},
 			/* TODO: custom call selector according to table, e.g. send campaign mails or such */
 		],
@@ -723,6 +740,215 @@ export class LaunixNode implements INodeType {
 					fields,
 				};
 			},
+			getFilters: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
+				const credentials = await this.getCredentials('launixCredentialsApi');
+				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
+				const tableId = (tableParam as any).value as string;
+				if (!tableId) {
+					return { fields: [] };
+				}
+
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
+					method: 'GET',
+					url: baseUrl + '/FOP/Index/api',
+					json: true,
+				});
+
+				const table = apiinfo['tables']?.[tableId];
+				if (!table || !table.filters) {
+					return { fields: [] };
+				}
+
+				const toDisplayString = (value: unknown): string => {
+					if (value === null || value === undefined) {
+						return '';
+					}
+					if (typeof value === 'string') {
+						return value;
+					}
+					if (typeof value === 'number' || typeof value === 'boolean') {
+						return String(value);
+					}
+					try {
+						return JSON.stringify(value);
+					} catch {
+						return String(value);
+					}
+				};
+
+				const pickOptionDescription = (data: IDataObject): string | undefined => {
+					const candidate =
+						data['description'] ??
+						data['desc'] ??
+						data['info'] ??
+						data['help'] ??
+						data['tooltip'] ??
+						data['hint'];
+					const description = toDisplayString(candidate);
+					return description ? description : undefined;
+				};
+
+				const buildOptions = (input: unknown): INodePropertyOptions[] => {
+					if (!input) {
+						return [];
+					}
+					const options: INodePropertyOptions[] = [];
+					if (Array.isArray(input)) {
+						input.forEach((entry, index) => {
+							if (entry && typeof entry === 'object') {
+								const entryObj = entry as IDataObject;
+								const name = toDisplayString(
+									entryObj['name'] ?? entryObj['label'] ?? entryObj['desc'] ?? entryObj['title'] ?? entryObj['value'] ?? index,
+								);
+								let value: string | number | boolean = entryObj['value'] as any;
+								if (value === undefined) {
+									const candidate = entryObj['id'] ?? entryObj['key'] ?? entryObj['code'];
+									if (typeof candidate === 'number') {
+										value = candidate;
+									} else if (typeof candidate === 'boolean') {
+										value = candidate;
+									} else if (candidate !== undefined) {
+										value = String(candidate);
+									} else {
+										value = String(name);
+									}
+								}
+								const option: INodePropertyOptions = { name, value };
+								const description = pickOptionDescription(entryObj);
+								if (description) {
+									option.description = description;
+								}
+								options.push(option);
+							} else if (entry !== undefined && entry !== null) {
+								const name = toDisplayString(entry);
+								options.push({ name, value: name });
+							}
+						});
+					} else if (typeof input === 'object') {
+						Object.entries(input as Record<string, unknown>).forEach(([key, value]) => {
+							if (value && typeof value === 'object') {
+								const optionObj = value as IDataObject;
+								const name = toDisplayString(
+									optionObj['name'] ?? optionObj['label'] ?? optionObj['desc'] ?? optionObj['title'] ?? optionObj['value'] ?? key,
+								);
+								let optionValue: string | number | boolean = optionObj['value'] as any;
+								if (optionValue === undefined) {
+									if (typeof optionObj['id'] === 'number' || typeof optionObj['id'] === 'boolean') {
+										optionValue = optionObj['id'] as any;
+									} else if (optionObj['id'] !== undefined) {
+										optionValue = String(optionObj['id']);
+									} else {
+										optionValue = key;
+									}
+								}
+								const option: INodePropertyOptions = { name, value: optionValue };
+								const description = pickOptionDescription(optionObj);
+								if (description) {
+									option.description = description;
+								}
+								options.push(option);
+							} else {
+								const name = toDisplayString(value ?? key);
+								const normalizedKey: string | number | boolean =
+									typeof value === 'number' || typeof value === 'boolean'
+										? value
+										: key;
+								options.push({ name, value: normalizedKey });
+							}
+						});
+					} else {
+						const name = toDisplayString(input);
+						options.push({ name, value: name });
+					}
+					return options;
+				};
+
+				const entries: Array<{ data: IDataObject; sourceKey?: string }> = [];
+				if (Array.isArray(table.filters)) {
+					table.filters.forEach((entry: unknown) => {
+						if (entry && typeof entry === 'object') {
+							entries.push({ data: entry as IDataObject });
+						} else if (entry !== undefined && entry !== null) {
+							entries.push({ data: { id: toDisplayString(entry), label: toDisplayString(entry) } as IDataObject });
+						}
+					});
+				} else if (typeof table.filters === 'object') {
+					Object.entries(table.filters as Record<string, unknown>).forEach(([key, value]) => {
+						if (value && typeof value === 'object') {
+							entries.push({ data: value as IDataObject, sourceKey: key });
+						} else {
+							const labelValue = toDisplayString(value ?? key) || key;
+							entries.push({
+								data: {
+									id: key,
+									label: labelValue,
+								} as IDataObject,
+								sourceKey: key,
+							});
+						}
+					});
+				}
+
+				const fields: Array<ResourceMapperField & { options?: INodePropertyOptions[]; description?: string }> = [];
+				entries.forEach(({ data, sourceKey }) => {
+					const idCandidates: Array<unknown> = [
+						data['id'],
+						data['key'],
+						data['name'],
+						data['field'],
+						sourceKey,
+					];
+					let filterId = '';
+					for (const candidate of idCandidates) {
+						if (typeof candidate === 'string' && candidate.trim()) {
+							filterId = candidate.trim();
+							break;
+						}
+						if (typeof candidate === 'number' || typeof candidate === 'boolean') {
+							filterId = String(candidate);
+							break;
+						}
+					}
+					if (!filterId) {
+						return;
+					}
+
+					const labelCandidate =
+						data['label'] ??
+						data['desc'] ??
+						data['description'] ??
+						data['title'] ??
+						data['name'] ??
+						sourceKey ??
+						filterId;
+					const label = toDisplayString(labelCandidate) || filterId;
+					const infoCandidate = data['info'] ?? data['help'] ?? data['tooltip'] ?? data['hint'];
+					const infoText = toDisplayString(infoCandidate);
+					const options = buildOptions(data['option'] ?? data['options']);
+					const displayName = label ? `${label} (${filterId})` : filterId;
+					const field: ResourceMapperField & { options?: INodePropertyOptions[]; description?: string } = {
+						id: filterId,
+						displayName,
+						required: false,
+						defaultMatch: false,
+						display: true,
+						type: options.length ? 'options' : 'string',
+						canBeUsedToMatch: false,
+						readOnly: false,
+						removed: false,
+					};
+					if (options.length) {
+						field.options = options;
+					}
+					if (infoText) {
+						field.description = infoText;
+					}
+					fields.push(field);
+				});
+
+				return { fields };
+			},
 			// load param list for a selected custom action
 			getActionParams: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
@@ -959,9 +1185,51 @@ export class LaunixNode implements INodeType {
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
 				if (operation === 'list') {
-					let params = this.getNodeParameter('filterparams', itemIndex, {}) as any;
-					if (typeof params === 'string') params = JSON.parse(params);
-					url += '?' + Object.keys(params).map((k) => encodeURIComponent(k) + '=' + encodeURIComponent(params[k] as string)).join('&');
+					const filtersWrapper = this.getNodeParameter('filterparams', itemIndex, { value: null }) as IDataObject;
+					const rawFilters = filtersWrapper ? (filtersWrapper as any).value : null;
+					const resolvedFilters = rawFilters && typeof rawFilters === 'object' && !Array.isArray(rawFilters)
+						? (replaceNullSentinel(rawFilters) as IDataObject)
+						: {};
+					const toQueryValue = (value: unknown): string | undefined => {
+						if (value === null || value === undefined) {
+							return undefined;
+						}
+						if (typeof value === 'string') {
+							return value;
+						}
+						if (typeof value === 'number' || typeof value === 'boolean') {
+							return String(value);
+						}
+						if (Array.isArray(value)) {
+							return value
+								.map((entry) => (entry === null || entry === undefined ? '' : String(entry)))
+								.join(',');
+						}
+						if (typeof value === 'object') {
+							try {
+								return JSON.stringify(value);
+							} catch {
+								return String(value);
+							}
+						}
+						return String(value);
+					};
+					const queryParts: string[] = [];
+					if (resolvedFilters && typeof resolvedFilters === 'object') {
+						for (const [key, value] of Object.entries(resolvedFilters)) {
+							if (!key) {
+								continue;
+							}
+							const queryValue = toQueryValue(value);
+							if (queryValue === undefined) {
+								continue;
+							}
+							queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(queryValue)}`);
+						}
+					}
+					if (queryParts.length) {
+						url += '?' + queryParts.join('&');
+					}
 				}
 				let preparedBody: IDataObject | null | undefined;
 				if (operation === 'create' || operation === 'edit') {
