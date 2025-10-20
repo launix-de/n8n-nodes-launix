@@ -273,7 +273,11 @@ export class LaunixNode implements INodeType {
 
 				var tables = [];
 				for (var classname in apiinfo.tables) {
-					if (!filter || apiinfo.tables[classname].descSingle.toUpperCase().includes(filter.toUpperCase())) {
+					if (
+						!filter
+						|| apiinfo.tables[classname].descSingle.toUpperCase().includes(filter.toUpperCase())
+						|| classname.toUpperCase().includes(filter.toUpperCase())
+					) {
 						tables.push({name: apiinfo.tables[classname].descSingle + ' (' + apiinfo.tables[classname].tblname + ')', value: classname});
 					}
 				}
