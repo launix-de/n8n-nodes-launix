@@ -13,7 +13,39 @@ import type {
 	ResourceMapperFields,
 	ResourceMapperField,
 } from 'n8n-workflow';
-import FormData from 'form-data';
+
+type BinaryBuffer = Uint8Array & { readonly length: number };
+
+declare const Buffer: {
+	from(data: string, encoding?: string): BinaryBuffer;
+	concat(chunks: BinaryBuffer[]): BinaryBuffer;
+};
+
+const MULTIPART_NEWLINE = '\r\n';
+
+function buildMultipartPayload(options: {
+	fieldName: string;
+	filename: string;
+	contentType: string;
+	data: BinaryBuffer;
+}) {
+	const boundary = `----n8nLaunix${Date.now().toString(16)}${Math.random()
+		.toString(16)
+		.slice(2)}`;
+	const safeFieldName = encodeURIComponent(options.fieldName);
+	const safeFileName = encodeURIComponent(options.filename);
+	const header = Buffer.from(
+		`--${boundary}${MULTIPART_NEWLINE}` +
+			`Content-Disposition: form-data; name="${safeFieldName}"; filename="${safeFileName}"${MULTIPART_NEWLINE}` +
+			`Content-Type: ${options.contentType}${MULTIPART_NEWLINE}${MULTIPART_NEWLINE}`,
+		'utf8',
+	);
+	const footer = Buffer.from(`${MULTIPART_NEWLINE}--${boundary}--${MULTIPART_NEWLINE}`, 'utf8');
+	return {
+		boundary,
+		body: Buffer.concat([header, options.data, footer]),
+	};
+}
 
 const NULL_SENTINEL = '__NULL__';
 
@@ -1020,13 +1052,20 @@ export class LaunixNode implements INodeType {
 					const contentType = (bin.mimeType as string) || 'application/octet-stream';
 
 					const url = baseUrl + '/FOP/Files/upload?x=-1';
-					const form = new FormData();
-					form.append('file_-1', buffer, { filename, contentType });
+					const payload = buildMultipartPayload({
+						fieldName: 'file_-1',
+						filename,
+						contentType,
+						data: buffer as unknown as BinaryBuffer,
+					});
 
 					const result = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
 						method: 'POST',
 						url,
-						body: form,
+						body: payload.body,
+						headers: {
+							'Content-Type': `multipart/form-data; boundary=${payload.boundary}`,
+						},
 						json: true,
 					});
 
