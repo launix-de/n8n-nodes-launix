@@ -987,6 +987,7 @@ export class LaunixNode implements INodeType {
 		const credentials = await this.getCredentials('launixCredentialsApi');
 		const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
 		const items = this.getInputData();
+		const returnItems: INodeExecutionData[] = [];
 
 		const replaceNullSentinel = (value: unknown): unknown => {
 			if (value === NULL_SENTINEL) {
@@ -1005,12 +1006,11 @@ export class LaunixNode implements INodeType {
 			return value;
 		};
 
-		let item: INodeExecutionData;
 		const operation = (this.getNodeParameter('operation', 0, 'view') as string);
 
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+			const item = items[itemIndex];
 			try {
-				item = items[itemIndex];
 				// Handle special operation: retrieve file binary
 				if (operation === 'retrieveFile') {
 					const fileId = this.getNodeParameter('fileId', itemIndex, '') as string;
@@ -1037,6 +1037,7 @@ export class LaunixNode implements INodeType {
 					item.binary = item.binary || {};
 					item.binary['data'] = binaryData;
 					item.json = { fileId, fileName: filename } as IDataObject;
+					returnItems.push(item);
 					continue;
 				}
 
@@ -1071,6 +1072,7 @@ export class LaunixNode implements INodeType {
 
 					if (result['error']) throw result['error'];
 					item.json = { uploaded: true, result } as IDataObject;
+					returnItems.push(item);
 					continue;
 				}
 
@@ -1183,6 +1185,7 @@ export class LaunixNode implements INodeType {
 					} else {
 						item.json = { ok: true, status: response.statusCode, contentType, url } as IDataObject;
 					}
+					returnItems.push(item);
 					continue;
 				}
 
@@ -1267,11 +1270,16 @@ export class LaunixNode implements INodeType {
 				} else {
 					item.json = { data: result };
 				}
+				returnItems.push(item);
 			} catch (error) {
-				// This node should never fail but we want to showcase how
-				// to handle errors.
 				if (this.continueOnFail()) {
-					items.push({ json: this.getInputData(itemIndex)[0].json, error, pairedItem: { item: itemIndex } });
+					const errorJson: IDataObject = item?.json ? { ...item.json } : {};
+					errorJson.error = error instanceof Error ? error.message : (error as IDataObject);
+					returnItems.push({
+						json: errorJson,
+						pairedItem: { item: itemIndex },
+					});
+					continue;
 				} else {
 					// Adding `itemIndex` allows other workflows to handle this error
 					if (error.context) {
@@ -1287,6 +1295,6 @@ export class LaunixNode implements INodeType {
 			}
 		}
 
-		return [items];
+		return [returnItems];
 	}
 }
