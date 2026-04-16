@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-launix",
-  "version": "1.3.25",
+  "version": "1.3.26",
   "description": "n8n Nodes for interaction with Launix products, especially ERP, CRM and DMS systems",
   "keywords": [
     "n8n-community-node-package"
@@ -13,7 +13,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/launix-de/n8n-nodes-launix.git"
+    "url": "git+https://github.com/launix-de/n8n-nodes-launix.git"
   },
   "engines": {
     "node": ">=20.15"

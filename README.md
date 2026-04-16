@@ -59,6 +59,7 @@ Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes
 
 This node supports the following operations:
 
+- **Batch Action** – Run a batch action (POST items)
 - **Create** – Insert a new record  
 - **Custom Action** – Run a custom action (e.g., `Invoice-Send`)  
 - **Delete** – Permanently delete a record  
@@ -94,5 +95,4 @@ Tip: For complex workflows, you can chain multiple Launix nodes (e.g., Launix: f
 ## Version history
 
 - **1.0.0** – Initial release: all CRUD operations supported
-
 

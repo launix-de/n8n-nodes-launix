@@ -79,6 +79,7 @@ export class LaunixNode implements INodeType {
 				default: 'view',
 				required: true,
 				options: [
+					{ name: 'Batch Action', value: 'batchAction', description: 'Run a batch action (POST items)', action: 'Run a batch action' },
 					{ name: 'Create', value: 'create', description: 'Insert an item', action: 'Insert an item' },
 					{ name: 'Custom Action', value: 'custom', description: 'Custom action call like Invoice-Send', action: 'Custom action' },
 					{ name: 'Delete', value: 'delete', description: 'Delete an item permanently', action: 'Delete an item permanently' },
@@ -112,6 +113,7 @@ export class LaunixNode implements INodeType {
 				displayOptions: {
 					show: {
 						operation: [
+							'batchAction',
 							'create',
 							'delete',
 							'edit',
@@ -150,6 +152,63 @@ export class LaunixNode implements INodeType {
 					}
 				},
 				description: 'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+			},
+			{
+				displayName: 'Batch Action',
+				name: 'batchAction',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
+				required: true,
+				modes: [
+					{
+						displayName: 'Batch Action',
+						name: 'list',
+						type: 'list',
+						typeOptions: {
+							searchListMethod: 'searchBatchActions',
+							searchable: true,
+						},
+					},
+				],
+				typeOptions: {
+					loadOptionsDependsOn: ['table.value'],
+				},
+				displayOptions: {
+					show: {
+						operation: ['batchAction'],
+					},
+				},
+				description: 'A batch endpoint (POST JSON items) exposed by the API descriptor',
+			},
+			{
+				displayName: 'Items Mode',
+				name: 'batchItemsMode',
+				type: 'options',
+				noDataExpression: true,
+				default: 'idField',
+				options: [
+					{ name: 'ID Field', value: 'idField', description: 'Send an array of items with an ID field built from input items' },
+					{ name: 'Full JSON', value: 'fullJson', description: 'Send each input item JSON as-is' },
+				],
+				displayOptions: {
+					show: {
+						operation: ['batchAction'],
+					},
+				},
+			},
+			{
+				displayName: 'ID Field',
+				name: 'batchIdField',
+				type: 'string',
+				default: 'id',
+				required: true,
+				displayOptions: {
+					show: {
+						operation: ['batchAction'],
+						batchItemsMode: ['idField'],
+					},
+				},
+				description: 'Field name on the incoming items to use as item ID',
 			},
 			{
 				displayName: 'Action Parameters',
@@ -335,6 +394,31 @@ export class LaunixNode implements INodeType {
 				const table = apiinfo['tables'][tableId];
 				if (!table) return { results: [] };
 				const actions = (table.actions || []) as Array<any>;
+				const results = actions
+					.filter((a: any) => {
+						const label = (a.title || a.path || '').toString();
+						return !filter || label.toUpperCase().includes(filter.toUpperCase());
+					})
+					.map((a: any) => ({ name: (a.title || a.path || ''), value: a.path }));
+				return { results };
+			}
+			,
+			// load batch actions for selected table
+			searchBatchActions: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+				const credentials = await this.getCredentials('launixCredentialsApi');
+				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
+				const tableId = (tableParam as any).value as string;
+				if (!tableId) return { results: [] };
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
+					method: 'GET',
+					url: baseUrl + '/FOP/Index/api',
+					json: true,
+				});
+
+				const table = apiinfo['tables'][tableId];
+				if (!table) return { results: [] };
+				const actions = (table.batchActions || []) as Array<any>;
 				const results = actions
 					.filter((a: any) => {
 						const label = (a.title || a.path || '').toString();
@@ -1008,6 +1092,72 @@ export class LaunixNode implements INodeType {
 
 		const operation = (this.getNodeParameter('operation', 0, 'view') as string);
 
+		if (operation === 'batchAction') {
+			try {
+				const table = (this.getNodeParameter('table', 0, {}) as IDataObject).value as string;
+				if (!table) {
+					throw new NodeOperationError(this.getNode(), 'Table is missing');
+				}
+				const actionParam = this.getNodeParameter('batchAction', 0, {}) as IDataObject;
+				const actionPath = (actionParam as any).value as string;
+				if (!actionPath) {
+					throw new NodeOperationError(this.getNode(), 'Batch action is missing');
+				}
+
+				const batchItemsMode = this.getNodeParameter('batchItemsMode', 0, 'idField') as string;
+				let payloadItems: IDataObject[];
+				if (batchItemsMode === 'fullJson') {
+					payloadItems = items.map((entry) => replaceNullSentinel(entry.json) as IDataObject);
+				} else {
+					const idField = this.getNodeParameter('batchIdField', 0, 'id') as string;
+					payloadItems = items.map((entry, idx) => {
+						const idValue = (entry.json as IDataObject)?.[idField];
+						if (idValue === undefined || idValue === null || idValue === '') {
+							throw new NodeOperationError(this.getNode(), `Missing id field '${idField}' on input item`, { itemIndex: idx });
+						}
+						return { id: idValue } as IDataObject;
+					});
+				}
+
+				const url = baseUrl + '/' + String(actionPath).replace(/^\/+/, '');
+				const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
+					method: 'POST',
+					url,
+					body: { items: payloadItems },
+					json: true,
+				});
+
+				if (!Array.isArray(response)) {
+					throw new NodeOperationError(this.getNode(), 'Batch action response must be an array');
+				}
+				if (response.length !== items.length) {
+					throw new NodeOperationError(this.getNode(), `Batch action response length mismatch: expected ${items.length}, got ${response.length}`);
+				}
+
+				for (let idx = 0; idx < response.length; idx++) {
+					returnItems.push({
+						json: response[idx] as IDataObject,
+						pairedItem: { item: idx },
+					});
+				}
+
+				return [returnItems];
+			} catch (error) {
+				if (this.continueOnFail()) {
+					for (let idx = 0; idx < items.length; idx++) {
+						returnItems.push({
+							json: {
+								error: error instanceof Error ? error.message : (error as IDataObject),
+							},
+							pairedItem: { item: idx },
+						});
+					}
+					return [returnItems];
+				}
+				throw error;
+			}
+		}
+
 		for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
 			const item = items[itemIndex];
 			try {
@@ -1163,6 +1313,7 @@ export class LaunixNode implements INodeType {
 					});
 					const headers = (response.headers || {}) as any;
 					const contentType = (headers['content-type'] as string | undefined) || '';
+					const rawBody = response.body;
 					if (/application\/pdf/i.test(contentType)) {
 						// Try to infer a filename
 						let filename = `${table}_${finalParams['id'] || 'action'}_${actionPath.split('/').pop()}.pdf`;
@@ -1175,15 +1326,38 @@ export class LaunixNode implements INodeType {
 						item.binary = item.binary || {};
 						item.binary['data'] = binaryData;
 						item.json = { ok: true, fileName: filename, url } as IDataObject;
-					} else if (/application\/json/i.test(contentType)) {
-						try {
-							const json = JSON.parse(response.body?.toString() || '{}');
-							item.json = json as IDataObject;
-						} catch {
+					} else {
+						let parsedBody: unknown = rawBody;
+						let textBody = '';
+
+						if (rawBody instanceof Uint8Array) {
+							textBody = (rawBody as any).toString('utf8').trim();
+						} else if (typeof rawBody === 'string') {
+							textBody = rawBody.trim();
+						}
+
+						if (
+							textBody &&
+							(/application\/json/i.test(contentType) || /^[\[{]/.test(textBody))
+						) {
+							try {
+								parsedBody = JSON.parse(textBody);
+							} catch {
+								parsedBody = textBody;
+							}
+						} else if (textBody) {
+							parsedBody = textBody;
+						}
+
+						if (parsedBody && typeof parsedBody === 'object' && !Array.isArray(parsedBody)) {
+							item.json = parsedBody as IDataObject;
+						} else if (Array.isArray(parsedBody)) {
+							item.json = { payload: parsedBody } as IDataObject;
+						} else if (parsedBody !== undefined && parsedBody !== null && parsedBody !== '') {
+							item.json = { payload: parsedBody } as IDataObject;
+						} else {
 							item.json = { ok: true, status: response.statusCode, contentType, url } as IDataObject;
 						}
-					} else {
-						item.json = { ok: true, status: response.statusCode, contentType, url } as IDataObject;
 					}
 					returnItems.push(item);
 					continue;
