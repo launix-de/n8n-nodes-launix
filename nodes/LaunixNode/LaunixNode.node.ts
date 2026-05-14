@@ -261,6 +261,9 @@ export class LaunixNode implements INodeType {
 					show: {
 						operation: ['list'],
 					},
+					hide: {
+						contextTable: [''],
+					},
 				},
 				description: 'Record ID for the selected context table. Required for context-bound DataViews; ignored for global DataViews.',
 			},
@@ -282,7 +285,7 @@ export class LaunixNode implements INodeType {
 					}
 				],
 				typeOptions: {
-					loadOptionsDependsOn: ['contextTable'],
+					loadOptionsDependsOn: ['contextTable.value'],
 				},
 				placeholder: 'Select a DataView...',
 				description: 'The DataView you want to query',
@@ -310,7 +313,7 @@ export class LaunixNode implements INodeType {
 					},
 				],
 				typeOptions: {
-					loadOptionsDependsOn: ['table'],
+					loadOptionsDependsOn: ['table.value'],
 				},
 				displayOptions: {
 					show: {
@@ -385,7 +388,7 @@ export class LaunixNode implements INodeType {
 				noDataExpression: true,
 				default: { mappingMode: 'defineBelow', value: null },
 				typeOptions: {
-					loadOptionsDependsOn: ['table', 'customAction'],
+					loadOptionsDependsOn: ['table.value', 'customAction.value'],
 					resourceMapper: {
 						resourceMapperMethod: 'getActionParams',
 						mode: 'upsert',
@@ -457,7 +460,7 @@ export class LaunixNode implements INodeType {
 				},
 				required: true,
 				typeOptions: {
-					loadOptionsDependsOn: ['table', 'operation'],
+					loadOptionsDependsOn: ['table.value', 'operation'],
 					resourceMapper: {
 						resourceMapperMethod: 'getColumns',
 						mode: 'add',
@@ -480,13 +483,27 @@ export class LaunixNode implements INodeType {
 				},
 			},
 			{
-				displayName: 'Nested Create Lists JSON',
-				name: 'createListsJson',
-				type: 'string',
-				default: '{\n  \n}',
+				displayName: 'Nested Create Lists',
+				name: 'createLists',
+				type: 'resourceMapper',
+				noDataExpression: true,
+				default: {
+					mappingMode: 'defineBelow',
+					value: null,
+				},
 				typeOptions: {
-					editor: 'json',
-					rows: 12,
+					loadOptionsDependsOn: ['table.value'],
+					resourceMapper: {
+						resourceMapperMethod: 'getCreateLists',
+						mode: 'add',
+						fieldWords: {
+							singular: 'create list',
+							plural: 'create lists',
+						},
+						addAllFields: false,
+						multiKeyMatch: false,
+						supportAutoMap: false,
+					},
 				},
 				displayOptions: {
 					show: {
@@ -495,7 +512,7 @@ export class LaunixNode implements INodeType {
 						],
 					},
 				},
-				description: 'Optional JSON object for complex nested child lists exposed via `createLists`, for example arrays of recipients',
+				description: 'Optional nested child arrays. Each field expects a JSON array for one declared create list.',
 			},
 			{
 				displayName: 'DataView Parameters',
@@ -507,7 +524,7 @@ export class LaunixNode implements INodeType {
 					value: null,
 				},
 				typeOptions: {
-					loadOptionsDependsOn: ['contextTable', 'dataView'],
+					loadOptionsDependsOn: ['contextTable.value', 'dataView.value'],
 					resourceMapper: {
 						resourceMapperMethod: 'getDataViewParams',
 						mode: 'add',
@@ -537,7 +554,7 @@ export class LaunixNode implements INodeType {
 					value: null,
 				},
 				typeOptions: {
-					loadOptionsDependsOn: ['contextTable', 'dataView'],
+					loadOptionsDependsOn: ['contextTable.value', 'dataView.value'],
 					resourceMapper: {
 						resourceMapperMethod: 'getFilters',
 						mode: 'add',
@@ -1333,6 +1350,57 @@ export class LaunixNode implements INodeType {
 				}
 				return { fields };
 			},
+			getCreateLists: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
+				const credentials = await this.getCredentials('launixCredentialsApi');
+				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
+				const tableId = getResourceLocatorValue(tableParam);
+				if (!tableId) {
+					return { fields: [] };
+				}
+
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const table = await fetchTableDescriptor(this, baseUrl, tableId);
+				const createLists = normalizeEndpointMap(table?.createLists);
+				const fields: Array<ResourceMapperField & { description?: string }> = [];
+
+				for (const [createListId, createListMeta] of Object.entries(createLists)) {
+					const title = typeof createListMeta.title === 'string' && createListMeta.title.trim() !== ''
+						? createListMeta.title
+						: createListId;
+					const childColumns = createListMeta.columns && typeof createListMeta.columns === 'object'
+						? Object.values(createListMeta.columns as Record<string, unknown>)
+							.map((columnMeta) => {
+								if (!columnMeta || typeof columnMeta !== 'object') {
+									return '';
+								}
+								const meta = columnMeta as IDataObject;
+								const columnId = typeof meta.id === 'string' ? meta.id : '';
+								const columnDesc = typeof meta.desc === 'string' && meta.desc.trim() !== '' ? meta.desc : columnId;
+								return columnId ? `${columnDesc} (${columnId})` : '';
+							})
+							.filter((value) => value !== '')
+						: [];
+					const descriptionParts = [
+						'Provide a JSON array of child objects.',
+						childColumns.length ? `Child fields: ${childColumns.join(', ')}` : '',
+					].filter((part) => part !== '');
+
+					fields.push({
+						id: createListId,
+						displayName: `${title} (${createListId})`,
+						required: false,
+						defaultMatch: false,
+						display: true,
+						type: 'string',
+						canBeUsedToMatch: false,
+						readOnly: false,
+						removed: true,
+						description: descriptionParts.join(' '),
+					});
+				}
+
+				return { fields };
+			},
 			// load param list for a selected custom action
 			getActionParams: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
@@ -1769,25 +1837,36 @@ export class LaunixNode implements INodeType {
 					}
 
 					if (operation === 'create') {
-						const rawCreateListsJson = this.getNodeParameter('createListsJson', itemIndex, '{}') as string;
-						const trimmedCreateListsJson = rawCreateListsJson.trim();
-						if (trimmedCreateListsJson !== '' && trimmedCreateListsJson !== '{}') {
-							let parsedCreateListsJson: unknown;
-							try {
-								parsedCreateListsJson = JSON.parse(rawCreateListsJson);
-							} catch (error) {
-								throw new NodeOperationError(
-									this.getNode(),
-									`Invalid nested create lists JSON: ${error instanceof Error ? error.message : String(error)}`,
-									{ itemIndex },
-								);
-							}
-							if (!parsedCreateListsJson || Array.isArray(parsedCreateListsJson) || typeof parsedCreateListsJson !== 'object') {
-								throw new NodeOperationError(this.getNode(), 'Nested create lists JSON must be an object', { itemIndex });
+						const createListsWrapper = this.getNodeParameter('createLists', itemIndex, { value: null }) as IDataObject;
+						const rawCreateLists = createListsWrapper ? (createListsWrapper as any).value : null;
+						if (rawCreateLists && typeof rawCreateLists === 'object' && !Array.isArray(rawCreateLists)) {
+							const parsedCreateLists: IDataObject = {};
+							for (const [createListId, rawValue] of Object.entries(rawCreateLists as IDataObject)) {
+								if (rawValue === null || rawValue === undefined) {
+									continue;
+								}
+								const rawString = String(rawValue).trim();
+								if (!rawString) {
+									continue;
+								}
+								let parsedList: unknown;
+								try {
+									parsedList = JSON.parse(rawString);
+								} catch (error) {
+									throw new NodeOperationError(
+										this.getNode(),
+										`Invalid JSON for nested create list '${createListId}': ${error instanceof Error ? error.message : String(error)}`,
+										{ itemIndex },
+									);
+								}
+								if (!Array.isArray(parsedList)) {
+									throw new NodeOperationError(this.getNode(), `Nested create list '${createListId}' must be a JSON array`, { itemIndex });
+								}
+								parsedCreateLists[createListId] = parsedList as any;
 							}
 							preparedBody = {
 								...(preparedBody ?? {}),
-								...(parsedCreateListsJson as IDataObject),
+								...parsedCreateLists,
 							};
 						}
 					}
