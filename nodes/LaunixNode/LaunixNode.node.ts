@@ -22,6 +22,7 @@ declare const Buffer: {
 };
 
 const MULTIPART_NEWLINE = '\r\n';
+type LaunixContext = ILoadOptionsFunctions | IExecuteFunctions;
 
 function buildMultipartPayload(options: {
 	fieldName: string;
@@ -48,6 +49,110 @@ function buildMultipartPayload(options: {
 }
 
 const NULL_SENTINEL = '__NULL__';
+
+function normalizeEndpointMap(input: unknown): Record<string, IDataObject> {
+	if (!input || typeof input !== 'object' || Array.isArray(input)) {
+		return {};
+	}
+	const result: Record<string, IDataObject> = {};
+	for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
+		if (typeof value === 'string' && value.trim() !== '') {
+			result[key] = { api: value };
+			continue;
+		}
+		if (value && typeof value === 'object' && !Array.isArray(value)) {
+			const apiValue = (value as IDataObject).api;
+			if (typeof apiValue === 'string' && apiValue.trim() !== '') {
+				result[key] = value as IDataObject;
+			}
+		}
+	}
+	return result;
+}
+
+function normalizePathMap(input: unknown): Record<string, string> {
+	const entries = normalizeEndpointMap(input);
+	const result: Record<string, string> = {};
+	for (const [key, value] of Object.entries(entries)) {
+		if (typeof value.api === 'string' && value.api.trim() !== '') {
+			result[key] = value.api;
+		}
+	}
+	return result;
+}
+
+async function fetchRootApi(context: LaunixContext, baseUrl: string): Promise<IDataObject> {
+	return await context.helpers.httpRequestWithAuthentication.call(context, 'launixCredentialsApi', {
+		method: 'GET',
+		url: `${baseUrl}/FOP/Index/api`,
+		json: true,
+	});
+}
+
+async function fetchApiDescriptor(context: LaunixContext, baseUrl: string, basePath: string): Promise<IDataObject> {
+	const normalizedPath = String(basePath).replace(/^\/+/, '').replace(/\/+$/, '');
+	return await context.helpers.httpRequestWithAuthentication.call(context, 'launixCredentialsApi', {
+		method: 'GET',
+		url: `${baseUrl}/${normalizedPath}/api`,
+		json: true,
+	});
+}
+
+async function resolveTablePath(context: LaunixContext, baseUrl: string, tableId: string): Promise<string | undefined> {
+	const apiInfo = await fetchRootApi(context, baseUrl);
+	return normalizePathMap(apiInfo.tables)[tableId];
+}
+
+async function fetchTableDescriptor(context: LaunixContext, baseUrl: string, tableId: string): Promise<IDataObject | undefined> {
+	const tablePath = await resolveTablePath(context, baseUrl, tableId);
+	if (!tablePath) {
+		return undefined;
+	}
+	return await fetchApiDescriptor(context, baseUrl, tablePath);
+}
+
+async function resolveDataViewPath(
+	context: LaunixContext,
+	baseUrl: string,
+	dataViewId: string,
+	contextTableId?: string,
+): Promise<string | undefined> {
+	const apiInfo = await fetchRootApi(context, baseUrl);
+	const globalPath = normalizePathMap(apiInfo.dataviews)[dataViewId];
+	if (globalPath) {
+		return globalPath;
+	}
+	if (contextTableId) {
+		const tableDescriptor = await fetchTableDescriptor(context, baseUrl, contextTableId);
+		return normalizePathMap(tableDescriptor?.dataviews)[dataViewId];
+	}
+	return undefined;
+}
+
+async function fetchDataViewDescriptor(
+	context: LaunixContext,
+	baseUrl: string,
+	dataViewId: string,
+	contextTableId?: string,
+): Promise<IDataObject | undefined> {
+	const dataViewPath = await resolveDataViewPath(context, baseUrl, dataViewId, contextTableId);
+	if (!dataViewPath) {
+		return undefined;
+	}
+	return await fetchApiDescriptor(context, baseUrl, dataViewPath);
+}
+
+function getResourceLocatorValue(input: unknown): string {
+	if (!input || typeof input !== 'object') {
+		return '';
+	}
+	const value = (input as IDataObject).value;
+	return typeof value === 'string' ? value : '';
+}
+
+function getEffectiveListDataViewId(dataViewId: string, legacyTableId: string): string {
+	return dataViewId || legacyTableId;
+}
 
 export class LaunixNode implements INodeType {
 
@@ -117,10 +222,73 @@ export class LaunixNode implements INodeType {
 							'create',
 							'delete',
 							'edit',
-							'list',
 							'view',
 							'custom',
 						],
+					}
+				},
+			},
+				{
+					displayName: 'Context Table',
+					name: 'contextTable',
+					type: 'resourceLocator',
+					default: { mode: 'list', value: '' },
+					modes: [
+					{
+						displayName: 'Table',
+						name: 'list',
+						type: 'list',
+						typeOptions: {
+							searchListMethod: 'searchContextTables',
+							searchable: true,
+						},
+					}
+				],
+				placeholder: 'Optional: select a context table...',
+				description: 'Optional table context for parameterized DataViews declared on a table',
+				displayOptions: {
+					show: {
+						operation: ['list'],
+					}
+				},
+			},
+			{
+				displayName: 'Context ID',
+				name: 'contextId',
+				type: 'string',
+				default: '',
+				displayOptions: {
+					show: {
+						operation: ['list'],
+					},
+				},
+				description: 'Record ID for the selected context table. Required for context-bound DataViews; ignored for global DataViews.',
+			},
+				{
+					displayName: 'DataView',
+					name: 'dataView',
+					type: 'resourceLocator',
+					default: { mode: 'list', value: '' },
+					required: true,
+				modes: [
+					{
+						displayName: 'DataView',
+						name: 'list',
+						type: 'list',
+						typeOptions: {
+							searchListMethod: 'searchDataViews',
+							searchable: true,
+						},
+					}
+				],
+				typeOptions: {
+					loadOptionsDependsOn: ['contextTable'],
+				},
+				placeholder: 'Select a DataView...',
+				description: 'The DataView you want to query',
+				displayOptions: {
+					show: {
+						operation: ['list'],
 					}
 				},
 			},
@@ -142,7 +310,7 @@ export class LaunixNode implements INodeType {
 					},
 				],
 				typeOptions: {
-					loadOptionsDependsOn: ['table.value'],
+					loadOptionsDependsOn: ['table'],
 				},
 				displayOptions: {
 					show: {
@@ -217,7 +385,7 @@ export class LaunixNode implements INodeType {
 				noDataExpression: true,
 				default: { mappingMode: 'defineBelow', value: null },
 				typeOptions: {
-					loadOptionsDependsOn: ['table.value', 'customAction.value'],
+					loadOptionsDependsOn: ['table', 'customAction'],
 					resourceMapper: {
 						resourceMapperMethod: 'getActionParams',
 						mode: 'upsert',
@@ -289,7 +457,7 @@ export class LaunixNode implements INodeType {
 				},
 				required: true,
 				typeOptions: {
-					loadOptionsDependsOn: ['table.value', 'operation'],
+					loadOptionsDependsOn: ['table', 'operation'],
 					resourceMapper: {
 						resourceMapperMethod: 'getColumns',
 						mode: 'add',
@@ -312,6 +480,54 @@ export class LaunixNode implements INodeType {
 				},
 			},
 			{
+				displayName: 'Nested Create Lists JSON',
+				name: 'createListsJson',
+				type: 'string',
+				default: '{\n  \n}',
+				typeOptions: {
+					editor: 'json',
+					rows: 12,
+				},
+				displayOptions: {
+					show: {
+						operation: [
+							'create',
+						],
+					},
+				},
+				description: 'Optional JSON object for complex nested child lists exposed via `createLists`, for example arrays of recipients',
+			},
+			{
+				displayName: 'DataView Parameters',
+				name: 'dataViewParams',
+				type: 'resourceMapper',
+				noDataExpression: true,
+				default: {
+					mappingMode: 'defineBelow',
+					value: null,
+				},
+				typeOptions: {
+					loadOptionsDependsOn: ['contextTable', 'dataView'],
+					resourceMapper: {
+						resourceMapperMethod: 'getDataViewParams',
+						mode: 'add',
+						fieldWords: {
+							singular: 'parameter',
+							plural: 'parameters',
+						},
+						addAllFields: false,
+						multiKeyMatch: false,
+						supportAutoMap: false,
+					},
+				},
+				displayOptions: {
+					show: {
+						operation: ['list'],
+					}
+				},
+				description: 'Provide the DataView parameters declared by the selected DataView',
+			},
+			{
 				displayName: 'Filters',
 				name: 'filterparams',
 				type: 'resourceMapper',
@@ -321,7 +537,7 @@ export class LaunixNode implements INodeType {
 					value: null,
 				},
 				typeOptions: {
-					loadOptionsDependsOn: ['table.value'],
+					loadOptionsDependsOn: ['contextTable', 'dataView'],
 					resourceMapper: {
 						resourceMapperMethod: 'getFilters',
 						mode: 'add',
@@ -341,7 +557,7 @@ export class LaunixNode implements INodeType {
 						],
 					}
 				},
-				description: 'Select filters supported by the chosen table',
+				description: 'Select filters supported by the chosen DataView',
 			},
 			/* TODO: custom call selector according to table, e.g. send campaign mails or such */
 		],
@@ -352,32 +568,88 @@ export class LaunixNode implements INodeType {
 			// load tables
 			searchTables: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
-
-				//const nodeOptions = this.getNodeParameter('options', 0) as IDataObject;
-
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'GET',
-					url: baseUrl + '/FOP/Index/api',
-					json: true,
-				});
+				const apiInfo = await fetchRootApi(this, baseUrl);
+				const tablesMeta = normalizeEndpointMap(apiInfo.tables);
+				const tables = Object.entries(tablesMeta)
+					.filter(([tableId, tableMeta]) => {
+						const descSingle = typeof tableMeta.descSingle === 'string' ? tableMeta.descSingle : '';
+						const descMulti = typeof tableMeta.descMulti === 'string' ? tableMeta.descMulti : '';
+						return (
+							!filter ||
+							tableId.toUpperCase().includes(filter.toUpperCase()) ||
+							descSingle.toUpperCase().includes(filter.toUpperCase()) ||
+							descMulti.toUpperCase().includes(filter.toUpperCase())
+						);
+					})
+					.map(([tableId, tableMeta]) => ({
+						name:
+							typeof tableMeta.descSingle === 'string' && tableMeta.descSingle.trim() !== ''
+								? `${tableMeta.descSingle} (${tableId})`
+								: tableId,
+						value: tableId,
+					}));
 
-				var tables = [];
-				for (var classname in apiinfo.tables) {
+				return {
+					results: tables,
+				};
+			},
+				searchContextTables: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+					const credentials = await this.getCredentials('launixCredentialsApi');
+					const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+					const apiInfo = await fetchRootApi(this, baseUrl);
+					const tablesMeta = normalizeEndpointMap(apiInfo.tables);
+					const results = [{ name: 'Global (no context)', value: '' } as INodePropertyOptions];
+				for (const [tableId, tableMeta] of Object.entries(tablesMeta)) {
+					const descSingle = typeof tableMeta.descSingle === 'string' ? tableMeta.descSingle : '';
+					const descMulti = typeof tableMeta.descMulti === 'string' ? tableMeta.descMulti : '';
 					if (
-						!filter
-						|| apiinfo.tables[classname].descSingle.toUpperCase().includes(filter.toUpperCase())
-						|| classname.toUpperCase().includes(filter.toUpperCase())
+						!filter ||
+						tableId.toUpperCase().includes(filter.toUpperCase()) ||
+						descSingle.toUpperCase().includes(filter.toUpperCase()) ||
+						descMulti.toUpperCase().includes(filter.toUpperCase()) ||
+						'GLOBAL'.includes(filter.toUpperCase())
 					) {
-						tables.push({name: apiinfo.tables[classname].descSingle + ' (' + apiinfo.tables[classname].tblname + ')', value: classname});
+						results.push({
+							name: descSingle.trim() !== '' ? `${descSingle} (${tableId})` : tableId,
+							value: tableId,
+						});
+					}
+				}
+				return { results };
+			},
+			searchDataViews: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+				const credentials = await this.getCredentials('launixCredentialsApi');
+				const contextTableParam = this.getNodeParameter('contextTable', 0, {}) as IDataObject;
+				const contextTableId = (contextTableParam as any).value as string;
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const results: INodePropertyOptions[] = [];
+				const addResult = (dataViewId: string, labelValue?: unknown) => {
+					const label = typeof labelValue === 'string' && labelValue.trim() !== '' ? labelValue : dataViewId;
+					if (!filter || dataViewId.toUpperCase().includes(filter.toUpperCase()) || String(label).toUpperCase().includes(filter.toUpperCase())) {
+						results.push({
+							name: `${label} (${dataViewId})`,
+							value: dataViewId,
+						});
+					}
+				};
+
+				if (contextTableId) {
+					const tableDescriptor = await fetchTableDescriptor(this, baseUrl, contextTableId);
+					for (const [dataViewId, dataViewMeta] of Object.entries(normalizeEndpointMap(tableDescriptor?.dataviews))) {
+						addResult(dataViewId, dataViewMeta.label);
+					}
+				} else {
+					const apiInfo = await fetchRootApi(this, baseUrl);
+					for (const [dataViewId, dataViewMeta] of Object.entries(normalizeEndpointMap(apiInfo.dataviews))) {
+						addResult(dataViewId, dataViewMeta.label);
 					}
 				}
 
 				return {
-					results: tables
+					results,
 				};
-			}
-			,
+			},
 			// load actions for selected table
 			searchCustomActions: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
@@ -385,13 +657,7 @@ export class LaunixNode implements INodeType {
 				const tableId = (tableParam as any).value as string;
 				if (!tableId) return { results: [] };
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'GET',
-					url: baseUrl + '/FOP/Index/api',
-					json: true,
-				});
-
-				const table = apiinfo['tables'][tableId];
+				const table = await fetchTableDescriptor(this, baseUrl, tableId);
 				if (!table) return { results: [] };
 				const actions = (table.actions || []) as Array<any>;
 				const results = actions
@@ -401,8 +667,7 @@ export class LaunixNode implements INodeType {
 					})
 					.map((a: any) => ({ name: (a.title || a.path || ''), value: a.path }));
 				return { results };
-			}
-			,
+			},
 			// load batch actions for selected table
 			searchBatchActions: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
@@ -410,13 +675,7 @@ export class LaunixNode implements INodeType {
 				const tableId = (tableParam as any).value as string;
 				if (!tableId) return { results: [] };
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'GET',
-					url: baseUrl + '/FOP/Index/api',
-					json: true,
-				});
-
-				const table = apiinfo['tables'][tableId];
+				const table = await fetchTableDescriptor(this, baseUrl, tableId);
 				if (!table) return { results: [] };
 				const actions = (table.batchActions || []) as Array<any>;
 				const results = actions
@@ -438,13 +697,7 @@ export class LaunixNode implements INodeType {
 				const tableId = (tableParam as any).value as string;
 
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'GET',
-					url: baseUrl + '/FOP/Index/api',
-					json: true,
-				});
-
-				const table = apiinfo['tables']?.[tableId];
+				const table = await fetchTableDescriptor(this, baseUrl, tableId);
 				if (!table) {
 					return { fields: [] };
 				}
@@ -753,11 +1006,14 @@ export class LaunixNode implements INodeType {
 					nullOptionLabel?: string,
 				): Promise<INodePropertyOptions[]> => {
 					try {
+						const dataViewPath = await resolveDataViewPath(this, baseUrl, referenceTable);
+						if (!dataViewPath) {
+							return [];
+						}
 						const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-							method: 'POST',
-							url: `${baseUrl}/TablesAPI/${encodeURIComponent(referenceTable)}/list`,
+							method: 'GET',
+							url: `${baseUrl}/${String(dataViewPath).replace(/^\/+/, '')}/list`,
 							json: true,
-							body: {},
 						});
 						const rows = extractRecords(response).slice(0, 200);
 						const seen = new Set<string | number | boolean>();
@@ -862,21 +1118,20 @@ export class LaunixNode implements INodeType {
 			},
 			getFilters: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
+				const dataViewParam = this.getNodeParameter('dataView', 0, {}) as IDataObject;
+				const dataViewId = getResourceLocatorValue(dataViewParam);
 				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
-				const tableId = (tableParam as any).value as string;
-				if (!tableId) {
+				const legacyTableId = getResourceLocatorValue(tableParam);
+				const effectiveDataViewId = getEffectiveListDataViewId(dataViewId, legacyTableId);
+				const contextTableParam = this.getNodeParameter('contextTable', 0, {}) as IDataObject;
+				const contextTableId = getResourceLocatorValue(contextTableParam);
+				if (!effectiveDataViewId) {
 					return { fields: [] };
 				}
 
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'GET',
-					url: baseUrl + '/FOP/Index/api',
-					json: true,
-				});
-
-				const table = apiinfo['tables']?.[tableId];
-				if (!table || !table.filters) {
+				const dataView = await fetchDataViewDescriptor(this, baseUrl, effectiveDataViewId, contextTableId);
+				if (!dataView || !dataView.filters) {
 					return { fields: [] };
 				}
 
@@ -948,16 +1203,16 @@ export class LaunixNode implements INodeType {
 				};
 
 				const entries: Array<{ data: IDataObject; sourceKey?: string }> = [];
-				if (Array.isArray(table.filters)) {
-					table.filters.forEach((entry: unknown) => {
+				if (Array.isArray(dataView.filters)) {
+					dataView.filters.forEach((entry: unknown) => {
 						if (entry && typeof entry === 'object') {
 							entries.push({ data: entry as IDataObject });
 						} else if (entry !== undefined && entry !== null) {
 							entries.push({ data: { id: toDisplayString(entry), label: toDisplayString(entry) } as IDataObject });
 						}
 					});
-				} else if (typeof table.filters === 'object') {
-					Object.entries(table.filters as Record<string, unknown>).forEach(([key, value]) => {
+				} else if (typeof dataView.filters === 'object') {
+					Object.entries(dataView.filters as Record<string, unknown>).forEach(([key, value]) => {
 						if (value && typeof value === 'object') {
 							entries.push({ data: value as IDataObject, sourceKey: key });
 						} else {
@@ -1032,6 +1287,52 @@ export class LaunixNode implements INodeType {
 
 				return { fields };
 			},
+			getDataViewParams: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
+				const credentials = await this.getCredentials('launixCredentialsApi');
+				const dataViewParam = this.getNodeParameter('dataView', 0, {}) as IDataObject;
+				const dataViewId = getResourceLocatorValue(dataViewParam);
+				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
+				const legacyTableId = getResourceLocatorValue(tableParam);
+				const effectiveDataViewId = getEffectiveListDataViewId(dataViewId, legacyTableId);
+				const contextTableParam = this.getNodeParameter('contextTable', 0, {}) as IDataObject;
+				const contextTableId = getResourceLocatorValue(contextTableParam);
+				if (!effectiveDataViewId) {
+					return { fields: [] };
+				}
+
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const dataView = await fetchDataViewDescriptor(this, baseUrl, effectiveDataViewId, contextTableId);
+				if (!dataView || !dataView.parameters) {
+					return { fields: [] };
+				}
+
+				const fields: ResourceMapperField[] = [];
+				for (const [paramId, paramMeta] of Object.entries(dataView.parameters as Record<string, unknown>)) {
+					if (contextTableId && paramId === 'id') {
+						continue;
+					}
+					const meta = (paramMeta && typeof paramMeta === 'object' ? paramMeta : {}) as IDataObject;
+					const typeName = typeof meta.type === 'string' ? meta.type.toLowerCase() : 'string';
+					let fieldType: ResourceMapperField['type'] = 'string';
+					if (typeName === 'number' || typeName === 'integer') {
+						fieldType = 'number';
+					} else if (typeName === 'boolean') {
+						fieldType = 'boolean';
+					}
+					fields.push({
+						id: paramId,
+						displayName: paramId,
+						required: false,
+						defaultMatch: false,
+						display: true,
+						type: fieldType,
+						canBeUsedToMatch: false,
+						readOnly: false,
+						removed: false,
+					});
+				}
+				return { fields };
+			},
 			// load param list for a selected custom action
 			getActionParams: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
@@ -1040,14 +1341,9 @@ export class LaunixNode implements INodeType {
 				const actionParam = this.getNodeParameter('customAction', 0, {}) as IDataObject;
 				const selectedPath = (actionParam as any).value as string;
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'GET',
-					url: baseUrl + '/FOP/Index/api',
-					json: true,
-				});
-
-				const actionMeta = (apiinfo.tables?.[tableId]?.actions || []).find((a: any) => a.path === selectedPath) || { params: [] };
-				const fields: ResourceMapperField[] = (actionMeta.params || []).map((p: string) => ({
+				const table = await fetchTableDescriptor(this, baseUrl, tableId);
+				const actionMeta = ((table?.actions || []) as Array<any>).find((a: any) => a.path === selectedPath) || { params: [] };
+				const fields: ResourceMapperField[] = (actionMeta.params || []).filter((p: string) => p !== 'id').map((p: string) => ({
 					id: p,
 					displayName: p,
 					required: false,
@@ -1242,22 +1538,8 @@ export class LaunixNode implements INodeType {
 					let httpMethod = 'GET';
 					let expectedParams: string[] = [];
 					try {
-						const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-							method: 'GET',
-							url: baseUrl + '/FOP/Index/api',
-							json: true,
-						});
-						// Resolve table class key if user provided tblname/descSingle via expression
-						let tableKey = table;
-						if (!apiinfo.tables?.[tableKey]) {
-							for (const [k, t] of Object.entries(apiinfo.tables || {})) {
-								if ((t as any)?.tblname?.toLowerCase() === String(table).toLowerCase() || (t as any)?.descSingle?.toLowerCase() === String(table).toLowerCase()) {
-									tableKey = k;
-									break;
-								}
-							}
-						}
-						const tableActions = (apiinfo.tables?.[tableKey]?.actions || []) as Array<any>;
+						const tableDescriptor = await fetchTableDescriptor(this, baseUrl, table);
+						const tableActions = (tableDescriptor?.actions || []) as Array<any>;
 						const meta = tableActions.find((a: any) => a.path === actionPath);
 						if (meta) {
 							httpMethod = (meta.httpMethod || 'GET').toUpperCase();
@@ -1287,6 +1569,10 @@ export class LaunixNode implements INodeType {
 					const path = '/' + String(actionPath).replace(/^\/+/, '');
 					let url = baseUrl + path;
 					const method = httpMethod || 'GET';
+					if (method !== 'GET' && finalParams.id) {
+						const idQuery = 'id=' + encodeURIComponent(finalParams.id);
+						url += (url.includes('?') ? '&' : '?') + idQuery;
+					}
 
 					const requestOptions: any = {
 						method,
@@ -1363,11 +1649,37 @@ export class LaunixNode implements INodeType {
 					continue;
 				}
 
-				let url = baseUrl + '/TablesAPI/' + table + '/' + operation;
+				let url = '';
 				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
+					const tablePath = await resolveTablePath(this, baseUrl, table);
+					if (!tablePath) {
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+					}
+					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/${operation}`;
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
 				if (operation === 'list') {
+					const dataViewParam = this.getNodeParameter('dataView', itemIndex, {}) as IDataObject;
+					const dataViewId = getResourceLocatorValue(dataViewParam);
+					const legacyTableParam = this.getNodeParameter('table', itemIndex, {}) as IDataObject;
+					const legacyTableId = getResourceLocatorValue(legacyTableParam);
+					const effectiveDataViewId = getEffectiveListDataViewId(dataViewId, legacyTableId);
+					const contextTableParam = this.getNodeParameter('contextTable', itemIndex, {}) as IDataObject;
+					const contextTableId = getResourceLocatorValue(contextTableParam);
+					const dataViewPath = await resolveDataViewPath(this, baseUrl, effectiveDataViewId, contextTableId);
+					if (!dataViewPath) {
+						throw new NodeOperationError(this.getNode(), `DataView '${effectiveDataViewId}' was not found`, { itemIndex });
+					}
+					url = `${baseUrl}/${String(dataViewPath).replace(/^\/+/, '')}/list`;
+					const contextId = this.getNodeParameter('contextId', itemIndex, '') as string;
+					const paramsWrapper = this.getNodeParameter('dataViewParams', itemIndex, { value: null }) as IDataObject;
+					const rawParams = paramsWrapper ? (paramsWrapper as any).value : null;
+					const resolvedParams = rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams)
+						? (replaceNullSentinel(rawParams) as IDataObject)
+						: {};
+					if (contextTableId && contextId !== '') {
+						resolvedParams.id = contextId;
+					}
 					const filtersWrapper = this.getNodeParameter('filterparams', itemIndex, { value: null }) as IDataObject;
 					const rawFilters = filtersWrapper ? (filtersWrapper as any).value : null;
 					const resolvedFilters = rawFilters && typeof rawFilters === 'object' && !Array.isArray(rawFilters)
@@ -1398,8 +1710,12 @@ export class LaunixNode implements INodeType {
 						return String(value);
 					};
 					const queryParts: string[] = [];
-					if (resolvedFilters && typeof resolvedFilters === 'object') {
-						for (const [key, value] of Object.entries(resolvedFilters)) {
+					const querySource = {
+						...(resolvedParams && typeof resolvedParams === 'object' ? resolvedParams : {}),
+						...(resolvedFilters && typeof resolvedFilters === 'object' ? resolvedFilters : {}),
+					};
+					if (querySource && typeof querySource === 'object') {
+						for (const [key, value] of Object.entries(querySource)) {
 							if (!key) {
 								continue;
 							}
@@ -1414,6 +1730,34 @@ export class LaunixNode implements INodeType {
 						url += '?' + queryParts.join('&');
 					}
 				}
+				if (operation === 'create') {
+					const tablePath = await resolveTablePath(this, baseUrl, table);
+					if (!tablePath) {
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+					}
+					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/create`;
+				}
+				if (operation === 'edit' && !url) {
+					const tablePath = await resolveTablePath(this, baseUrl, table);
+					if (!tablePath) {
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+					}
+					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/edit?id=` + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
+				}
+				if (operation === 'delete' && !url) {
+					const tablePath = await resolveTablePath(this, baseUrl, table);
+					if (!tablePath) {
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+					}
+					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/delete?id=` + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
+				}
+				if (operation === 'view' && !url) {
+					const tablePath = await resolveTablePath(this, baseUrl, table);
+					if (!tablePath) {
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+					}
+					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/view?id=` + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
+				}
 				let preparedBody: IDataObject | null | undefined;
 				if (operation === 'create' || operation === 'edit') {
 					const columnsWrapper = this.getNodeParameter('columns', itemIndex, { value: null }) as IDataObject;
@@ -1422,6 +1766,30 @@ export class LaunixNode implements INodeType {
 						preparedBody = replaceNullSentinel(rawColumns) as IDataObject;
 					} else {
 						preparedBody = rawColumns;
+					}
+
+					if (operation === 'create') {
+						const rawCreateListsJson = this.getNodeParameter('createListsJson', itemIndex, '{}') as string;
+						const trimmedCreateListsJson = rawCreateListsJson.trim();
+						if (trimmedCreateListsJson !== '' && trimmedCreateListsJson !== '{}') {
+							let parsedCreateListsJson: unknown;
+							try {
+								parsedCreateListsJson = JSON.parse(rawCreateListsJson);
+							} catch (error) {
+								throw new NodeOperationError(
+									this.getNode(),
+									`Invalid nested create lists JSON: ${error instanceof Error ? error.message : String(error)}`,
+									{ itemIndex },
+								);
+							}
+							if (!parsedCreateListsJson || Array.isArray(parsedCreateListsJson) || typeof parsedCreateListsJson !== 'object') {
+								throw new NodeOperationError(this.getNode(), 'Nested create lists JSON must be an object', { itemIndex });
+							}
+							preparedBody = {
+								...(preparedBody ?? {}),
+								...(parsedCreateListsJson as IDataObject),
+							};
+						}
 					}
 				}
 
