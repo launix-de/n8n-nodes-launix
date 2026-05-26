@@ -638,7 +638,7 @@ export class LaunixNode implements INodeType {
 			searchDataViews: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 				const contextTableParam = this.getNodeParameter('contextTable', 0, {}) as IDataObject;
-				const contextTableId = (contextTableParam as any).value as string;
+				const contextTableId = getResourceLocatorValue(contextTableParam);
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
 				const results: INodePropertyOptions[] = [];
 				const addResult = (dataViewId: string, labelValue?: unknown) => {
