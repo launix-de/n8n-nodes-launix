@@ -6,7 +6,7 @@ import {
 	IWebhookResponseData,
 } from 'n8n-workflow';
 
-import { NodeApiError, NodeOperationError, NodeConnectionType, IDataObject, JsonObject, ILoadOptionsFunctions, INodeListSearchResult } from 'n8n-workflow';
+import { NodeApiError, NodeOperationError, IDataObject, JsonObject, ILoadOptionsFunctions, INodeListSearchResult } from 'n8n-workflow';
 
 export class LaunixTrigger implements INodeType {
 	description: INodeTypeDescription = {
@@ -15,7 +15,7 @@ export class LaunixTrigger implements INodeType {
 		icon: 'file:logo.svg',
 		group: ['trigger'],
 		inputs: [],   // ✅ no inputs for triggers
-		outputs: [NodeConnectionType.Main],  // ✅ one main output
+		outputs: ['main'],  // ✅ one main output
 		version: 1,
 		subtitle: '={{$parameter["table"] + ":" + $parameter["action"]}}',
 		description: 'Starts the workflow when data is created/edited in Launix',
