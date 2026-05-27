@@ -1,6 +1,6 @@
 {
   "name": "n8n-nodes-launix",
-  "version": "1.4.10",
+  "version": "1.4.11",
   "description": "n8n Nodes for interaction with Launix products, especially ERP, CRM and DMS systems",
   "keywords": [
     "n8n-community-node-package"
@@ -50,6 +50,6 @@
     "n8n-workflow": "^1.120.0"
   },
   "peerDependencies": {
-    "n8n-workflow": "^1.120.0"
+    "n8n-workflow": "*"
   }
 }
