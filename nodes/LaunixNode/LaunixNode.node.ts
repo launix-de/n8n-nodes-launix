@@ -61,10 +61,7 @@ function normalizeEndpointMap(input: unknown): Record<string, IDataObject> {
 			continue;
 		}
 		if (value && typeof value === 'object' && !Array.isArray(value)) {
-			const apiValue = (value as IDataObject).api;
-			if (typeof apiValue === 'string' && apiValue.trim() !== '') {
-				result[key] = value as IDataObject;
-			}
+			result[key] = value as IDataObject;
 		}
 	}
 	return result;
@@ -98,9 +95,32 @@ async function fetchApiDescriptor(context: LaunixContext, baseUrl: string, baseP
 	});
 }
 
+function getTableId(tableKey: string, tableMeta: IDataObject): string {
+	const tableName = tableMeta.tblname;
+	return typeof tableName === 'string' && tableName.trim() !== '' ? tableName : tableKey;
+}
+
+function getTableIdFromPath(path: unknown): string {
+	if (typeof path !== 'string' || path.trim() === '') {
+		return '';
+	}
+	const pathParts = path.replace(/^\/+/, '').replace(/\/+$/, '').split('/');
+	return pathParts[pathParts.length - 1] || '';
+}
+
 async function resolveTablePath(context: LaunixContext, baseUrl: string, tableId: string): Promise<string | undefined> {
 	const apiInfo = await fetchRootApi(context, baseUrl);
-	return normalizePathMap(apiInfo.tables)[tableId];
+	for (const [tableKey, tableMeta] of Object.entries(normalizeEndpointMap(apiInfo.tables))) {
+		const resolvedTableId = getTableId(tableKey, tableMeta);
+		const apiPath = tableMeta.api;
+		const apiPathTableId = getTableIdFromPath(apiPath);
+		if (tableId === tableKey || tableId === resolvedTableId || tableId === apiPathTableId) {
+			return typeof apiPath === 'string' && apiPath.trim() !== ''
+				? apiPath
+				: `TablesAPI/${resolvedTableId}`;
+		}
+	}
+	return undefined;
 }
 
 async function fetchTableDescriptor(context: LaunixContext, baseUrl: string, tableId: string): Promise<IDataObject | undefined> {
@@ -590,11 +610,13 @@ export class LaunixNode implements INodeType {
 				const tablesMeta = normalizeEndpointMap(apiInfo.tables);
 				const tables = Object.entries(tablesMeta)
 					.filter(([tableId, tableMeta]) => {
+						const resolvedTableId = getTableId(tableId, tableMeta);
 						const descSingle = typeof tableMeta.descSingle === 'string' ? tableMeta.descSingle : '';
 						const descMulti = typeof tableMeta.descMulti === 'string' ? tableMeta.descMulti : '';
 						return (
 							!filter ||
 							tableId.toUpperCase().includes(filter.toUpperCase()) ||
+							resolvedTableId.toUpperCase().includes(filter.toUpperCase()) ||
 							descSingle.toUpperCase().includes(filter.toUpperCase()) ||
 							descMulti.toUpperCase().includes(filter.toUpperCase())
 						);
@@ -602,34 +624,36 @@ export class LaunixNode implements INodeType {
 					.map(([tableId, tableMeta]) => ({
 						name:
 							typeof tableMeta.descSingle === 'string' && tableMeta.descSingle.trim() !== ''
-								? `${tableMeta.descSingle} (${tableId})`
-								: tableId,
-						value: tableId,
+								? `${tableMeta.descSingle} (${getTableId(tableId, tableMeta)})`
+								: getTableId(tableId, tableMeta),
+						value: getTableId(tableId, tableMeta),
 					}));
 
 				return {
 					results: tables,
 				};
 			},
-				searchContextTables: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
-					const credentials = await this.getCredentials('launixCredentialsApi');
-					const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-					const apiInfo = await fetchRootApi(this, baseUrl);
-					const tablesMeta = normalizeEndpointMap(apiInfo.tables);
-					const results = [{ name: 'Global (no context)', value: '' } as INodePropertyOptions];
+			searchContextTables: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+				const credentials = await this.getCredentials('launixCredentialsApi');
+				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
+				const apiInfo = await fetchRootApi(this, baseUrl);
+				const tablesMeta = normalizeEndpointMap(apiInfo.tables);
+				const results = [{ name: 'Global (no context)', value: '' } as INodePropertyOptions];
 				for (const [tableId, tableMeta] of Object.entries(tablesMeta)) {
+					const resolvedTableId = getTableId(tableId, tableMeta);
 					const descSingle = typeof tableMeta.descSingle === 'string' ? tableMeta.descSingle : '';
 					const descMulti = typeof tableMeta.descMulti === 'string' ? tableMeta.descMulti : '';
 					if (
 						!filter ||
 						tableId.toUpperCase().includes(filter.toUpperCase()) ||
+						resolvedTableId.toUpperCase().includes(filter.toUpperCase()) ||
 						descSingle.toUpperCase().includes(filter.toUpperCase()) ||
 						descMulti.toUpperCase().includes(filter.toUpperCase()) ||
 						'GLOBAL'.includes(filter.toUpperCase())
 					) {
 						results.push({
-							name: descSingle.trim() !== '' ? `${descSingle} (${tableId})` : tableId,
-							value: tableId,
+							name: descSingle.trim() !== '' ? `${descSingle} (${resolvedTableId})` : resolvedTableId,
+							value: resolvedTableId,
 						});
 					}
 				}
