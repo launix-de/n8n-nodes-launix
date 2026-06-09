@@ -6,7 +6,14 @@ import {
 	IWebhookResponseData,
 } from 'n8n-workflow';
 
-import { NodeApiError, NodeOperationError, IDataObject, JsonObject, ILoadOptionsFunctions, INodeListSearchResult } from 'n8n-workflow';
+import {
+	NodeApiError,
+	NodeOperationError,
+	IDataObject,
+	JsonObject,
+	ILoadOptionsFunctions,
+	INodeListSearchResult,
+} from 'n8n-workflow';
 
 export class LaunixTrigger implements INodeType {
 	description: INodeTypeDescription = {
@@ -14,8 +21,8 @@ export class LaunixTrigger implements INodeType {
 		name: 'launixTrigger',
 		icon: 'file:logo.svg',
 		group: ['trigger'],
-		inputs: [],   // ✅ no inputs for triggers
-		outputs: ['main'],  // ✅ one main output
+		inputs: [], // ✅ no inputs for triggers
+		outputs: ['main'], // ✅ one main output
 		version: 1,
 		subtitle: '={{$parameter["table"] + ":" + $parameter["action"]}}',
 		description: 'Starts the workflow when data is created/edited in Launix',
@@ -51,7 +58,7 @@ export class LaunixTrigger implements INodeType {
 							searchListMethod: 'searchTables',
 							searchable: true,
 						},
-					}
+					},
 				],
 				placeholder: 'Select a Table...',
 				description: 'The table you want to work on',
@@ -74,29 +81,46 @@ export class LaunixTrigger implements INodeType {
 	methods = {
 		listSearch: {
 			// load tables
-			searchTables: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+			searchTables: async function (
+				this: ILoadOptionsFunctions,
+				filter?: string,
+			): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 
 				//const nodeOptions = this.getNodeParameter('options', 0) as IDataObject;
 
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'GET',
-					url: baseUrl + '/FOP/Index/api',
-					json: true,
-				});
+				const apiinfo = await this.helpers.httpRequestWithAuthentication.call(
+					this,
+					'launixCredentialsApi',
+					{
+						method: 'GET',
+						url: baseUrl + '/FOP/Index/api',
+						json: true,
+					},
+				);
 
 				var tables = [];
 				for (var classname in apiinfo.tables) {
-					if (!filter || apiinfo.tables[classname].descSingle.toUpperCase().includes(filter.toUpperCase())) {
-						tables.push({name: apiinfo.tables[classname].descSingle + ' (' + apiinfo.tables[classname].tblname + ')', value: apiinfo.tables[classname].tblname});
+					if (
+						!filter ||
+						apiinfo.tables[classname].descSingle.toUpperCase().includes(filter.toUpperCase())
+					) {
+						tables.push({
+							name:
+								apiinfo.tables[classname].descSingle +
+								' (' +
+								apiinfo.tables[classname].tblname +
+								')',
+							value: apiinfo.tables[classname].tblname,
+						});
 					}
 				}
 
 				return {
-					results: tables
+					results: tables,
 				};
-			}
+			},
 		},
 	};
 
@@ -119,16 +143,19 @@ export class LaunixTrigger implements INodeType {
 				const workflowId = this.getWorkflow().id;
 				const n8nBaseUrl = this.getInstanceBaseUrl();
 
-
 				// 1. Clean up old triggers for same webhook
-				const listResponse = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'GET',
-					url: `${baseUrl}/TablesAPI/Fop_event/list`,
-					qs: {
-						[`filter_fop_event_${table}:reaction:webhook:url`]: webhookUrl,
+				const listResponse = await this.helpers.httpRequestWithAuthentication.call(
+					this,
+					'launixCredentialsApi',
+					{
+						method: 'GET',
+						url: `${baseUrl}/TablesAPI/Fop_event/list`,
+						qs: {
+							[`filter_fop_event_${table}:reaction:webhook:url`]: webhookUrl,
+						},
+						json: true,
 					},
-					json: true,
-				});
+				);
 
 				if (Array.isArray(listResponse?.items)) {
 					for (const item of listResponse.items) {
@@ -151,15 +178,21 @@ export class LaunixTrigger implements INodeType {
 					comment: `n8n Trigger ${n8nBaseUrl}workflow/${workflowId}`,
 				};
 
-				const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'POST',
-					url: `${baseUrl}/TablesAPI/Fop_event/create`,
-					body,
-					json: true,
-				});
+				const response = await this.helpers.httpRequestWithAuthentication.call(
+					this,
+					'launixCredentialsApi',
+					{
+						method: 'POST',
+						url: `${baseUrl}/TablesAPI/Fop_event/create`,
+						body,
+						json: true,
+					},
+				);
 
 				if (!response) {
-					throw new NodeApiError(this.getNode(), response as JsonObject, { message: 'No trigger ID returned from Launix API' });
+					throw new NodeApiError(this.getNode(), response as JsonObject, {
+						message: 'No trigger ID returned from Launix API',
+					});
 				}
 
 				// Store trigger id so we can delete it later
@@ -211,14 +244,18 @@ export class LaunixTrigger implements INodeType {
 				}
 
 				try {
-					const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-						method: 'GET',
-						url: `${baseUrl}/TablesAPI/Fop_event/list`,
-						qs: {
-							filter_ID: triggerId,
+					const response = await this.helpers.httpRequestWithAuthentication.call(
+						this,
+						'launixCredentialsApi',
+						{
+							method: 'GET',
+							url: `${baseUrl}/TablesAPI/Fop_event/list`,
+							qs: {
+								filter_ID: triggerId,
+							},
+							json: true,
 						},
-						json: true,
-					});
+					);
 
 					if (Array.isArray(response?.items) && response.items.length > 0) {
 						return true;
@@ -230,7 +267,7 @@ export class LaunixTrigger implements INodeType {
 						message: 'Error checking trigger existence in Launix API',
 					});
 				}
-			}
+			},
 		},
 	};
 
@@ -239,7 +276,7 @@ export class LaunixTrigger implements INodeType {
 		const query = this.getQueryData() as IDataObject;
 		//const body = this.getBodyData();
 		return {
-			workflowData: [ [ { json: { id: query['id'] } } ] ],
+			workflowData: [[{ json: { id: query['id'] } }]],
 		};
 	}
 }

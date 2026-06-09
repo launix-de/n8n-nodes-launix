@@ -4,12 +4,13 @@ import type {
 	INodeType,
 	INodeTypeDescription,
 } from 'n8n-workflow';
-import { NodeOperationError } from 'n8n-workflow';
+import { NodeApiError, NodeOperationError } from 'n8n-workflow';
 import type {
 	IDataObject,
 	ILoadOptionsFunctions,
 	INodeListSearchResult,
 	INodePropertyOptions,
+	JsonObject,
 	ResourceMapperFields,
 	ResourceMapperField,
 } from 'n8n-workflow';
@@ -30,9 +31,7 @@ function buildMultipartPayload(options: {
 	contentType: string;
 	data: BinaryBuffer;
 }) {
-	const boundary = `----n8nLaunix${Date.now().toString(16)}${Math.random()
-		.toString(16)
-		.slice(2)}`;
+	const boundary = `----n8nLaunix${Date.now().toString(16)}${Math.random().toString(16).slice(2)}`;
 	const safeFieldName = encodeURIComponent(options.fieldName);
 	const safeFileName = encodeURIComponent(options.filename);
 	const header = Buffer.from(
@@ -86,7 +85,11 @@ async function fetchRootApi(context: LaunixContext, baseUrl: string): Promise<ID
 	});
 }
 
-async function fetchApiDescriptor(context: LaunixContext, baseUrl: string, basePath: string): Promise<IDataObject> {
+async function fetchApiDescriptor(
+	context: LaunixContext,
+	baseUrl: string,
+	basePath: string,
+): Promise<IDataObject> {
 	const normalizedPath = String(basePath).replace(/^\/+/, '').replace(/\/+$/, '');
 	return await context.helpers.httpRequestWithAuthentication.call(context, 'launixCredentialsApi', {
 		method: 'GET',
@@ -108,7 +111,11 @@ function getTableIdFromPath(path: unknown): string {
 	return pathParts[pathParts.length - 1] || '';
 }
 
-async function resolveTablePath(context: LaunixContext, baseUrl: string, tableId: string): Promise<string | undefined> {
+async function resolveTablePath(
+	context: LaunixContext,
+	baseUrl: string,
+	tableId: string,
+): Promise<string | undefined> {
 	const apiInfo = await fetchRootApi(context, baseUrl);
 	for (const [tableKey, tableMeta] of Object.entries(normalizeEndpointMap(apiInfo.tables))) {
 		const resolvedTableId = getTableId(tableKey, tableMeta);
@@ -123,7 +130,11 @@ async function resolveTablePath(context: LaunixContext, baseUrl: string, tableId
 	return undefined;
 }
 
-async function fetchTableDescriptor(context: LaunixContext, baseUrl: string, tableId: string): Promise<IDataObject | undefined> {
+async function fetchTableDescriptor(
+	context: LaunixContext,
+	baseUrl: string,
+	tableId: string,
+): Promise<IDataObject | undefined> {
 	const tablePath = await resolveTablePath(context, baseUrl, tableId);
 	if (!tablePath) {
 		return undefined;
@@ -175,8 +186,7 @@ function getEffectiveListDataViewId(dataViewId: string, legacyTableId: string): 
 }
 
 export class LaunixNode implements INodeType {
-
-	description: INodeTypeDescription = ({
+	description: INodeTypeDescription = {
 		displayName: 'Launix API',
 		name: 'launixNode',
 		icon: 'file:logo.svg',
@@ -193,7 +203,7 @@ export class LaunixNode implements INodeType {
 			{
 				name: 'launixCredentialsApi',
 				required: true,
-			}
+			},
 		],
 		properties: [
 			{
@@ -204,15 +214,55 @@ export class LaunixNode implements INodeType {
 				default: 'view',
 				required: true,
 				options: [
-					{ name: 'Batch Action', value: 'batchAction', description: 'Run a batch action (POST items)', action: 'Run a batch action' },
-					{ name: 'Create', value: 'create', description: 'Insert an item', action: 'Insert an item' },
-					{ name: 'Custom Action', value: 'custom', description: 'Custom action call like Invoice-Send', action: 'Custom action' },
-					{ name: 'Delete', value: 'delete', description: 'Delete an item permanently', action: 'Delete an item permanently' },
+					{
+						name: 'Batch Action',
+						value: 'batchAction',
+						description: 'Run a batch action (POST items)',
+						action: 'Run a batch action',
+					},
+					{
+						name: 'Create',
+						value: 'create',
+						description: 'Insert an item',
+						action: 'Insert an item',
+					},
+					{
+						name: 'Custom Action',
+						value: 'custom',
+						description: 'Custom action call like Invoice-Send',
+						action: 'Custom action',
+					},
+					{
+						name: 'Delete',
+						value: 'delete',
+						description: 'Delete an item permanently',
+						action: 'Delete an item permanently',
+					},
 					{ name: 'Edit', value: 'edit', description: 'Update an item', action: 'Update an item' },
-					{ name: 'List', value: 'list', description: 'Retrieve a list of items', action: 'Retrieve a list of items' },
-					{ name: 'Retrieve File', value: 'retrieveFile', description: 'Download a file by ID', action: 'Retrieve a file' },
-					{ name: 'Upload File', value: 'uploadFile', description: 'Upload a file from binary', action: 'Upload a file' },
-					{ name: 'View', value: 'view', description: 'Retrieve an item', action: 'Retrieve an item' },
+					{
+						name: 'List',
+						value: 'list',
+						description: 'Retrieve a list of items',
+						action: 'Retrieve a list of items',
+					},
+					{
+						name: 'Retrieve File',
+						value: 'retrieveFile',
+						description: 'Download a file by ID',
+						action: 'Retrieve a file',
+					},
+					{
+						name: 'Upload File',
+						value: 'uploadFile',
+						description: 'Upload a file from binary',
+						action: 'Upload a file',
+					},
+					{
+						name: 'View',
+						value: 'view',
+						description: 'Retrieve an item',
+						action: 'Retrieve an item',
+					},
 				],
 				description: 'What do you want to perform on the data',
 			},
@@ -231,29 +281,22 @@ export class LaunixNode implements INodeType {
 							searchListMethod: 'searchTables',
 							searchable: true,
 						},
-					}
+					},
 				],
 				placeholder: 'Select a Table...',
 				description: 'The table you want to work on',
 				displayOptions: {
 					show: {
-						operation: [
-							'batchAction',
-							'create',
-							'delete',
-							'edit',
-							'view',
-							'custom',
-						],
-					}
+						operation: ['batchAction', 'create', 'delete', 'edit', 'view', 'custom'],
+					},
 				},
 			},
-				{
-					displayName: 'Context Table',
-					name: 'contextTable',
-					type: 'resourceLocator',
-					default: { mode: 'list', value: '' },
-					modes: [
+			{
+				displayName: 'Context Table',
+				name: 'contextTable',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
+				modes: [
 					{
 						displayName: 'Table',
 						name: 'list',
@@ -262,14 +305,14 @@ export class LaunixNode implements INodeType {
 							searchListMethod: 'searchContextTables',
 							searchable: true,
 						},
-					}
+					},
 				],
 				placeholder: 'Optional: select a context table...',
 				description: 'Optional table context for parameterized DataViews declared on a table',
 				displayOptions: {
 					show: {
 						operation: ['list'],
-					}
+					},
 				},
 			},
 			{
@@ -285,14 +328,15 @@ export class LaunixNode implements INodeType {
 						contextTable: [''],
 					},
 				},
-				description: 'Record ID for the selected context table. Required for context-bound DataViews; ignored for global DataViews.',
+				description:
+					'Record ID for the selected context table. Required for context-bound DataViews; ignored for global DataViews.',
 			},
-				{
-					displayName: 'DataView',
-					name: 'dataView',
-					type: 'resourceLocator',
-					default: { mode: 'list', value: '' },
-					required: true,
+			{
+				displayName: 'DataView',
+				name: 'dataView',
+				type: 'resourceLocator',
+				default: { mode: 'list', value: '' },
+				required: true,
 				modes: [
 					{
 						displayName: 'DataView',
@@ -302,7 +346,7 @@ export class LaunixNode implements INodeType {
 							searchListMethod: 'searchDataViews',
 							searchable: true,
 						},
-					}
+					},
 				],
 				typeOptions: {
 					loadOptionsDependsOn: ['contextTable.value'],
@@ -312,7 +356,7 @@ export class LaunixNode implements INodeType {
 				displayOptions: {
 					show: {
 						operation: ['list'],
-					}
+					},
 				},
 			},
 			{
@@ -337,12 +381,11 @@ export class LaunixNode implements INodeType {
 				},
 				displayOptions: {
 					show: {
-						operation: [
-							'custom',
-						],
-					}
+						operation: ['custom'],
+					},
 				},
-				description: 'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
+				description:
+					'Choose from the list, or specify an ID using an <a href="https://docs.n8n.io/code/expressions/">expression</a>',
 			},
 			{
 				displayName: 'Batch Action',
@@ -378,7 +421,11 @@ export class LaunixNode implements INodeType {
 				noDataExpression: true,
 				default: 'idField',
 				options: [
-					{ name: 'ID Field', value: 'idField', description: 'Send an array of items with an ID field built from input items' },
+					{
+						name: 'ID Field',
+						value: 'idField',
+						description: 'Send an array of items with an ID field built from input items',
+					},
 					{ name: 'Full JSON', value: 'fullJson', description: 'Send each input item JSON as-is' },
 				],
 				displayOptions: {
@@ -419,7 +466,7 @@ export class LaunixNode implements INodeType {
 					},
 				},
 				displayOptions: { show: { operation: ['custom'] } },
-				description: 'Provide values for the action\'s parameters as defined by the API descriptor',
+				description: "Provide values for the action's parameters as defined by the API descriptor",
 			},
 			{
 				displayName: 'Binary Property',
@@ -429,10 +476,8 @@ export class LaunixNode implements INodeType {
 				required: true,
 				displayOptions: {
 					show: {
-						operation: [
-							'uploadFile',
-						],
-					}
+						operation: ['uploadFile'],
+					},
 				},
 				description: 'Name of the binary property containing the file to upload',
 			},
@@ -444,10 +489,8 @@ export class LaunixNode implements INodeType {
 				required: true,
 				displayOptions: {
 					show: {
-						operation: [
-							'retrieveFile',
-						],
-					}
+						operation: ['retrieveFile'],
+					},
 				},
 				description: 'The identifier of the file to download',
 			},
@@ -455,17 +498,12 @@ export class LaunixNode implements INodeType {
 				displayName: 'Dataset ID',
 				name: 'id',
 				type: 'string',
-				default: "1",
+				default: '1',
 				required: true,
 				displayOptions: {
 					show: {
-						operation: [
-							'view',
-							'edit',
-							'delete',
-							'custom',
-						],
-					}
+						operation: ['view', 'edit', 'delete', 'custom'],
+					},
 				},
 				description: 'Which dataset do you want to view/edit/delete',
 			},
@@ -495,11 +533,8 @@ export class LaunixNode implements INodeType {
 				},
 				displayOptions: {
 					show: {
-						operation: [
-							'create',
-							'edit',
-						],
-					}
+						operation: ['create', 'edit'],
+					},
 				},
 			},
 			{
@@ -527,12 +562,11 @@ export class LaunixNode implements INodeType {
 				},
 				displayOptions: {
 					show: {
-						operation: [
-							'create',
-						],
+						operation: ['create'],
 					},
 				},
-				description: 'Optional nested child arrays. Each field expects a JSON array for one declared create list.',
+				description:
+					'Optional nested child arrays. Each field expects a JSON array for one declared create list.',
 			},
 			{
 				displayName: 'DataView Parameters',
@@ -560,7 +594,7 @@ export class LaunixNode implements INodeType {
 				displayOptions: {
 					show: {
 						operation: ['list'],
-					}
+					},
 				},
 				description: 'Provide the DataView parameters declared by the selected DataView',
 			},
@@ -589,21 +623,22 @@ export class LaunixNode implements INodeType {
 				},
 				displayOptions: {
 					show: {
-						operation: [
-							'list',
-						],
-					}
+						operation: ['list'],
+					},
 				},
 				description: 'Select filters supported by the chosen DataView',
 			},
 			/* TODO: custom call selector according to table, e.g. send campaign mails or such */
 		],
-	} as unknown as INodeTypeDescription);
+	} as unknown as INodeTypeDescription;
 
 	methods = {
 		listSearch: {
 			// load tables
-			searchTables: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+			searchTables: async function (
+				this: ILoadOptionsFunctions,
+				filter?: string,
+			): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
 				const apiInfo = await fetchRootApi(this, baseUrl);
@@ -633,7 +668,10 @@ export class LaunixNode implements INodeType {
 					results: tables,
 				};
 			},
-			searchContextTables: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+			searchContextTables: async function (
+				this: ILoadOptionsFunctions,
+				filter?: string,
+			): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
 				const apiInfo = await fetchRootApi(this, baseUrl);
@@ -652,22 +690,31 @@ export class LaunixNode implements INodeType {
 						'GLOBAL'.includes(filter.toUpperCase())
 					) {
 						results.push({
-							name: descSingle.trim() !== '' ? `${descSingle} (${resolvedTableId})` : resolvedTableId,
+							name:
+								descSingle.trim() !== '' ? `${descSingle} (${resolvedTableId})` : resolvedTableId,
 							value: resolvedTableId,
 						});
 					}
 				}
 				return { results };
 			},
-			searchDataViews: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+			searchDataViews: async function (
+				this: ILoadOptionsFunctions,
+				filter?: string,
+			): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 				const contextTableParam = this.getNodeParameter('contextTable', 0, {}) as IDataObject;
 				const contextTableId = getResourceLocatorValue(contextTableParam);
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
 				const results: INodePropertyOptions[] = [];
 				const addResult = (dataViewId: string, labelValue?: unknown) => {
-					const label = typeof labelValue === 'string' && labelValue.trim() !== '' ? labelValue : dataViewId;
-					if (!filter || dataViewId.toUpperCase().includes(filter.toUpperCase()) || String(label).toUpperCase().includes(filter.toUpperCase())) {
+					const label =
+						typeof labelValue === 'string' && labelValue.trim() !== '' ? labelValue : dataViewId;
+					if (
+						!filter ||
+						dataViewId.toUpperCase().includes(filter.toUpperCase()) ||
+						String(label).toUpperCase().includes(filter.toUpperCase())
+					) {
 						results.push({
 							name: `${label} (${dataViewId})`,
 							value: dataViewId,
@@ -677,12 +724,16 @@ export class LaunixNode implements INodeType {
 
 				if (contextTableId) {
 					const tableDescriptor = await fetchTableDescriptor(this, baseUrl, contextTableId);
-					for (const [dataViewId, dataViewMeta] of Object.entries(normalizeEndpointMap(tableDescriptor?.dataviews))) {
+					for (const [dataViewId, dataViewMeta] of Object.entries(
+						normalizeEndpointMap(tableDescriptor?.dataviews),
+					)) {
 						addResult(dataViewId, dataViewMeta.label);
 					}
 				} else {
 					const apiInfo = await fetchRootApi(this, baseUrl);
-					for (const [dataViewId, dataViewMeta] of Object.entries(normalizeEndpointMap(apiInfo.dataviews))) {
+					for (const [dataViewId, dataViewMeta] of Object.entries(
+						normalizeEndpointMap(apiInfo.dataviews),
+					)) {
 						addResult(dataViewId, dataViewMeta.label);
 					}
 				}
@@ -692,7 +743,10 @@ export class LaunixNode implements INodeType {
 				};
 			},
 			// load actions for selected table
-			searchCustomActions: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+			searchCustomActions: async function (
+				this: ILoadOptionsFunctions,
+				filter?: string,
+			): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
 				const tableId = (tableParam as any).value as string;
@@ -706,11 +760,14 @@ export class LaunixNode implements INodeType {
 						const label = (a.title || a.path || '').toString();
 						return !filter || label.toUpperCase().includes(filter.toUpperCase());
 					})
-					.map((a: any) => ({ name: (a.title || a.path || ''), value: a.path }));
+					.map((a: any) => ({ name: a.title || a.path || '', value: a.path }));
 				return { results };
 			},
 			// load batch actions for selected table
-			searchBatchActions: async function (this: ILoadOptionsFunctions, filter?: string): Promise<INodeListSearchResult> {
+			searchBatchActions: async function (
+				this: ILoadOptionsFunctions,
+				filter?: string,
+			): Promise<INodeListSearchResult> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 				const tableParam = this.getNodeParameter('table', 0, {}) as IDataObject;
 				const tableId = (tableParam as any).value as string;
@@ -724,9 +781,9 @@ export class LaunixNode implements INodeType {
 						const label = (a.title || a.path || '').toString();
 						return !filter || label.toUpperCase().includes(filter.toUpperCase());
 					})
-					.map((a: any) => ({ name: (a.title || a.path || ''), value: a.path }));
+					.map((a: any) => ({ name: a.title || a.path || '', value: a.path }));
 				return { results };
-			}
+			},
 		},
 		resourceMapping: {
 			// load column list of a table
@@ -775,7 +832,11 @@ export class LaunixNode implements INodeType {
 					value: unknown,
 					preferNumeric: boolean,
 				): string | number | boolean => {
-					if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+					if (
+						typeof value === 'string' ||
+						typeof value === 'number' ||
+						typeof value === 'boolean'
+					) {
 						return value;
 					}
 					if (preferNumeric) {
@@ -812,15 +873,24 @@ export class LaunixNode implements INodeType {
 					if (Array.isArray(rawOptions)) {
 						rawOptions.forEach((entry, index) => {
 							if (entry && typeof entry === 'object') {
-								const name = toDisplayString((entry as IDataObject).name ?? (entry as IDataObject).label ?? (entry as IDataObject).desc ?? (entry as IDataObject).value ?? index);
+								const name = toDisplayString(
+									(entry as IDataObject).name ??
+										(entry as IDataObject).label ??
+										(entry as IDataObject).desc ??
+										(entry as IDataObject).value ??
+										index,
+								);
 								const value = ensureOptionValue(
-									(entry as IDataObject).value ?? (entry as IDataObject).id ?? (entry as IDataObject).key ?? (preferNumeric ? index : name),
+									(entry as IDataObject).value ??
+										(entry as IDataObject).id ??
+										(entry as IDataObject).key ??
+										(preferNumeric ? index : name),
 									preferNumeric,
 								);
 								options.push({ name, value });
 							} else {
 								const name = toDisplayString(entry);
-								const fallbackValue = preferNumeric ? coerceNumber(entry) ?? index : entry;
+								const fallbackValue = preferNumeric ? (coerceNumber(entry) ?? index) : entry;
 								options.push({
 									name,
 									value: ensureOptionValue(fallbackValue, preferNumeric),
@@ -829,7 +899,7 @@ export class LaunixNode implements INodeType {
 						});
 					} else if (typeof rawOptions === 'object') {
 						Object.entries(rawOptions as Record<string, unknown>).forEach(([key, label]) => {
-							const value = preferNumeric ? coerceNumber(key) ?? key : key;
+							const value = preferNumeric ? (coerceNumber(key) ?? key) : key;
 							options.push({
 								name: toDisplayString(label ?? key),
 								value: ensureOptionValue(value, preferNumeric),
@@ -1004,7 +1074,18 @@ export class LaunixNode implements INodeType {
 					if (optionValue === undefined) {
 						return null;
 					}
-					const labelCandidates = ['name', 'Name', 'title', 'Title', 'label', 'Label', 'desc', 'Desc', 'description', 'Description'];
+					const labelCandidates = [
+						'name',
+						'Name',
+						'title',
+						'Title',
+						'label',
+						'Label',
+						'desc',
+						'Desc',
+						'description',
+						'Description',
+					];
 					let optionLabel: unknown;
 					for (const key of labelCandidates) {
 						if (record[key] !== undefined && record[key] !== null) {
@@ -1051,11 +1132,15 @@ export class LaunixNode implements INodeType {
 						if (!dataViewPath) {
 							return [];
 						}
-						const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-							method: 'GET',
-							url: `${baseUrl}/${String(dataViewPath).replace(/^\/+/, '')}/list`,
-							json: true,
-						});
+						const response = await this.helpers.httpRequestWithAuthentication.call(
+							this,
+							'launixCredentialsApi',
+							{
+								method: 'GET',
+								url: `${baseUrl}/${String(dataViewPath).replace(/^\/+/, '')}/list`,
+								json: true,
+							},
+						);
 						const rows = extractRecords(response).slice(0, 200);
 						const seen = new Set<string | number | boolean>();
 						const options: INodePropertyOptions[] = [];
@@ -1089,13 +1174,24 @@ export class LaunixNode implements INodeType {
 					const baseRequired = (columnInfo.required as boolean) || false;
 					const required = isCreate && baseRequired;
 					const rawType = columnInfo.type;
-					const resolvedType = typeof rawType === 'object' && rawType !== null ? (rawType as IDataObject) : { type: rawType };
-					const infoText = typeof resolvedType['info'] === 'string' ? (resolvedType['info'] as string) : undefined;
+					const resolvedType =
+						typeof rawType === 'object' && rawType !== null
+							? (rawType as IDataObject)
+							: { type: rawType };
+					const infoText =
+						typeof resolvedType['info'] === 'string' ? (resolvedType['info'] as string) : undefined;
 					const typeNameRaw = (resolvedType['type'] ?? rawType ?? 'string') as string;
 					const typeName = typeof typeNameRaw === 'string' ? typeNameRaw.toLowerCase() : 'string';
-					const hasNull = resolvedType['hasNull'] === true || resolvedType['hasNull'] === 'true' || resolvedType['hasNull'] === 1 || resolvedType['hasNull'] === '1';
+					const hasNull =
+						resolvedType['hasNull'] === true ||
+						resolvedType['hasNull'] === 'true' ||
+						resolvedType['hasNull'] === 1 ||
+						resolvedType['hasNull'] === '1';
 					const nullLabelSource = resolvedType['null'];
-					const nullLabel = typeof nullLabelSource === 'string' && nullLabelSource.trim() !== '' ? nullLabelSource : '-';
+					const nullLabel =
+						typeof nullLabelSource === 'string' && nullLabelSource.trim() !== ''
+							? nullLabelSource
+							: '-';
 					let fieldType: ResourceMapperField['type'] = 'string';
 					let options: INodePropertyOptions[] = [];
 
@@ -1113,7 +1209,9 @@ export class LaunixNode implements INodeType {
 					} else if (typeName === 'time') {
 						fieldType = 'time';
 					} else if (typeName === 'foreign-key' || typeName === 'reference') {
-						const referenceTable = resolvedType['references'] ? String(resolvedType['references']) : '';
+						const referenceTable = resolvedType['references']
+							? String(resolvedType['references'])
+							: '';
 						if (referenceTable) {
 							options = await loadReferenceOptions(referenceTable, hasNull ? nullLabel : undefined);
 						}
@@ -1171,7 +1269,12 @@ export class LaunixNode implements INodeType {
 				}
 
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const dataView = await fetchDataViewDescriptor(this, baseUrl, effectiveDataViewId, contextTableId);
+				const dataView = await fetchDataViewDescriptor(
+					this,
+					baseUrl,
+					effectiveDataViewId,
+					contextTableId,
+				);
 				if (!dataView || !dataView.filters) {
 					return { fields: [] };
 				}
@@ -1215,7 +1318,13 @@ export class LaunixNode implements INodeType {
 							if (entry && typeof entry === 'object') {
 								const entryObj = entry as IDataObject;
 								const name = toDisplayString(
-									entryObj['name'] ?? entryObj['label'] ?? entryObj['desc'] ?? entryObj['title'] ?? entryObj['description'] ?? entryObj['value'] ?? index,
+									entryObj['name'] ??
+										entryObj['label'] ??
+										entryObj['desc'] ??
+										entryObj['title'] ??
+										entryObj['description'] ??
+										entryObj['value'] ??
+										index,
 								);
 								let value: string | number | boolean = entryObj['value'] as any;
 								if (value === undefined) {
@@ -1244,7 +1353,13 @@ export class LaunixNode implements INodeType {
 							if (value && typeof value === 'object') {
 								const optionObj = value as IDataObject;
 								const name = toDisplayString(
-									optionObj['name'] ?? optionObj['label'] ?? optionObj['desc'] ?? optionObj['title'] ?? optionObj['description'] ?? optionObj['value'] ?? key,
+									optionObj['name'] ??
+										optionObj['label'] ??
+										optionObj['desc'] ??
+										optionObj['title'] ??
+										optionObj['description'] ??
+										optionObj['value'] ??
+										key,
 								);
 								let optionValue: string | number | boolean = optionObj['value'] as any;
 								if (optionValue === undefined) {
@@ -1265,9 +1380,7 @@ export class LaunixNode implements INodeType {
 							} else {
 								const name = toDisplayString(value ?? key);
 								const normalizedKey: string | number | boolean =
-									typeof value === 'number' || typeof value === 'boolean'
-										? value
-										: key;
+									typeof value === 'number' || typeof value === 'boolean' ? value : key;
 								options.push({ name, value: normalizedKey });
 							}
 						});
@@ -1286,7 +1399,9 @@ export class LaunixNode implements INodeType {
 						if (entry && typeof entry === 'object') {
 							entries.push({ data: entry as IDataObject });
 						} else if (entry !== undefined && entry !== null) {
-							entries.push({ data: { id: toDisplayString(entry), label: toDisplayString(entry) } as IDataObject });
+							entries.push({
+								data: { id: toDisplayString(entry), label: toDisplayString(entry) } as IDataObject,
+							});
 						}
 					});
 				} else if (typeof dataView.filters === 'object') {
@@ -1306,7 +1421,9 @@ export class LaunixNode implements INodeType {
 					});
 				}
 
-				const fields: Array<ResourceMapperField & { options?: INodePropertyOptions[]; description?: string }> = [];
+				const fields: Array<
+					ResourceMapperField & { options?: INodePropertyOptions[]; description?: string }
+				> = [];
 				entries.forEach(({ data, sourceKey }) => {
 					const idCandidates: Array<unknown> = [
 						data['id'],
@@ -1343,7 +1460,10 @@ export class LaunixNode implements INodeType {
 					const infoText = toDisplayString(infoCandidate);
 					const options = buildOptions(data['option'] ?? data['options']);
 					const displayName = label ? `${label} (${filterId})` : filterId;
-					const field: ResourceMapperField & { options?: INodePropertyOptions[]; description?: string } = {
+					const field: ResourceMapperField & {
+						options?: INodePropertyOptions[];
+						description?: string;
+					} = {
 						id: filterId,
 						displayName,
 						required: false,
@@ -1365,7 +1485,9 @@ export class LaunixNode implements INodeType {
 
 				return { fields };
 			},
-			getDataViewParams: async function (this: ILoadOptionsFunctions): Promise<ResourceMapperFields> {
+			getDataViewParams: async function (
+				this: ILoadOptionsFunctions,
+			): Promise<ResourceMapperFields> {
 				const credentials = await this.getCredentials('launixCredentialsApi');
 				const dataViewParam = this.getNodeParameter('dataView', 0, {}) as IDataObject;
 				const dataViewId = getResourceLocatorValue(dataViewParam);
@@ -1379,13 +1501,20 @@ export class LaunixNode implements INodeType {
 				}
 
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
-				const dataView = await fetchDataViewDescriptor(this, baseUrl, effectiveDataViewId, contextTableId);
+				const dataView = await fetchDataViewDescriptor(
+					this,
+					baseUrl,
+					effectiveDataViewId,
+					contextTableId,
+				);
 				if (!dataView || !dataView.parameters) {
 					return { fields: [] };
 				}
 
 				const fields: ResourceMapperField[] = [];
-				for (const [paramId, paramMeta] of Object.entries(dataView.parameters as Record<string, unknown>)) {
+				for (const [paramId, paramMeta] of Object.entries(
+					dataView.parameters as Record<string, unknown>,
+				)) {
 					if (contextTableId && paramId === 'id') {
 						continue;
 					}
@@ -1425,22 +1554,27 @@ export class LaunixNode implements INodeType {
 				const fields: Array<ResourceMapperField & { description?: string }> = [];
 
 				for (const [createListId, createListMeta] of Object.entries(createLists)) {
-					const title = typeof createListMeta.title === 'string' && createListMeta.title.trim() !== ''
-						? createListMeta.title
-						: createListId;
-					const childColumns = createListMeta.columns && typeof createListMeta.columns === 'object'
-						? Object.values(createListMeta.columns as Record<string, unknown>)
-							.map((columnMeta) => {
-								if (!columnMeta || typeof columnMeta !== 'object') {
-									return '';
-								}
-								const meta = columnMeta as IDataObject;
-								const columnId = typeof meta.id === 'string' ? meta.id : '';
-								const columnDesc = typeof meta.desc === 'string' && meta.desc.trim() !== '' ? meta.desc : columnId;
-								return columnId ? `${columnDesc} (${columnId})` : '';
-							})
-							.filter((value) => value !== '')
-						: [];
+					const title =
+						typeof createListMeta.title === 'string' && createListMeta.title.trim() !== ''
+							? createListMeta.title
+							: createListId;
+					const childColumns =
+						createListMeta.columns && typeof createListMeta.columns === 'object'
+							? Object.values(createListMeta.columns as Record<string, unknown>)
+									.map((columnMeta) => {
+										if (!columnMeta || typeof columnMeta !== 'object') {
+											return '';
+										}
+										const meta = columnMeta as IDataObject;
+										const columnId = typeof meta.id === 'string' ? meta.id : '';
+										const columnDesc =
+											typeof meta.desc === 'string' && meta.desc.trim() !== ''
+												? meta.desc
+												: columnId;
+										return columnId ? `${columnDesc} (${columnId})` : '';
+									})
+									.filter((value) => value !== '')
+							: [];
 					const descriptionParts = [
 						'Provide a JSON array of child objects.',
 						childColumns.length ? `Child fields: ${childColumns.join(', ')}` : '',
@@ -1471,21 +1605,25 @@ export class LaunixNode implements INodeType {
 				const selectedPath = (actionParam as any).value as string;
 				const baseUrl = (credentials.baseurl as string).replace(/\/+$/, '');
 				const table = await fetchTableDescriptor(this, baseUrl, tableId);
-				const actionMeta = ((table?.actions || []) as Array<any>).find((a: any) => a.path === selectedPath) || { params: [] };
-				const fields: ResourceMapperField[] = (actionMeta.params || []).filter((p: string) => p !== 'id').map((p: string) => ({
-					id: p,
-					displayName: p,
-					required: false,
-					defaultMatch: false,
-					display: true,
-					type: 'string',
-					canBeUsedToMatch: false,
-					readOnly: false,
-					removed: false,
-				}));
+				const actionMeta = ((table?.actions || []) as Array<any>).find(
+					(a: any) => a.path === selectedPath,
+				) || { params: [] };
+				const fields: ResourceMapperField[] = (actionMeta.params || [])
+					.filter((p: string) => p !== 'id')
+					.map((p: string) => ({
+						id: p,
+						displayName: p,
+						required: false,
+						defaultMatch: false,
+						display: true,
+						type: 'string',
+						canBeUsedToMatch: false,
+						readOnly: false,
+						removed: false,
+					}));
 				return { fields };
-			}
-		}
+			},
+		},
 	};
 
 	// The function below is responsible for actually doing whatever this node
@@ -1515,7 +1653,7 @@ export class LaunixNode implements INodeType {
 			return value;
 		};
 
-		const operation = (this.getNodeParameter('operation', 0, 'view') as string);
+		const operation = this.getNodeParameter('operation', 0, 'view') as string;
 
 		if (operation === 'batchAction') {
 			try {
@@ -1538,25 +1676,36 @@ export class LaunixNode implements INodeType {
 					payloadItems = items.map((entry, idx) => {
 						const idValue = (entry.json as IDataObject)?.[idField];
 						if (idValue === undefined || idValue === null || idValue === '') {
-							throw new NodeOperationError(this.getNode(), `Missing id field '${idField}' on input item`, { itemIndex: idx });
+							throw new NodeOperationError(
+								this.getNode(),
+								`Missing id field '${idField}' on input item`,
+								{ itemIndex: idx },
+							);
 						}
 						return { id: idValue } as IDataObject;
 					});
 				}
 
 				const url = baseUrl + '/' + String(actionPath).replace(/^\/+/, '');
-				const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: 'POST',
-					url,
-					body: { items: payloadItems },
-					json: true,
-				});
+				const response = await this.helpers.httpRequestWithAuthentication.call(
+					this,
+					'launixCredentialsApi',
+					{
+						method: 'POST',
+						url,
+						body: { items: payloadItems },
+						json: true,
+					},
+				);
 
 				if (!Array.isArray(response)) {
 					throw new NodeOperationError(this.getNode(), 'Batch action response must be an array');
 				}
 				if (response.length !== items.length) {
-					throw new NodeOperationError(this.getNode(), `Batch action response length mismatch: expected ${items.length}, got ${response.length}`);
+					throw new NodeOperationError(
+						this.getNode(),
+						`Batch action response length mismatch: expected ${items.length}, got ${response.length}`,
+					);
 				}
 
 				for (let idx = 0; idx < response.length; idx++) {
@@ -1579,7 +1728,10 @@ export class LaunixNode implements INodeType {
 					}
 					return [returnItems];
 				}
-				throw error;
+				if (error instanceof NodeOperationError) {
+					throw error;
+				}
+				throw new NodeApiError(this.getNode(), error as JsonObject);
 			}
 		}
 
@@ -1590,25 +1742,38 @@ export class LaunixNode implements INodeType {
 				if (operation === 'retrieveFile') {
 					const fileId = this.getNodeParameter('fileId', itemIndex, '') as string;
 					const url = baseUrl + '/files/' + encodeURIComponent(fileId) + '/x';
-					const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-						method: 'GET',
-						url,
-						json: false,
-						encoding: 'arraybuffer',
-						returnFullResponse: true,
-					});
+					const response = await this.helpers.httpRequestWithAuthentication.call(
+						this,
+						'launixCredentialsApi',
+						{
+							method: 'GET',
+							url,
+							json: false,
+							encoding: 'arraybuffer',
+							returnFullResponse: true,
+						},
+					);
 
 					const headers = response.headers || {};
 					let filename = 'file_' + fileId;
-					const contentDisposition: string | undefined = headers['content-disposition'] as string | undefined;
+					const contentDisposition: string | undefined = headers['content-disposition'] as
+						| string
+						| undefined;
 					if (contentDisposition) {
-						const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(contentDisposition);
+						const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(
+							contentDisposition,
+						);
 						if (match) {
 							filename = decodeURIComponent(match[1] || match[2]);
 						}
 					}
-					const contentType = (headers['content-type'] as string | undefined) || 'application/octet-stream';
-					const binaryData = await this.helpers.prepareBinaryData(response.body as any, filename, contentType);
+					const contentType =
+						(headers['content-type'] as string | undefined) || 'application/octet-stream';
+					const binaryData = await this.helpers.prepareBinaryData(
+						response.body as any,
+						filename,
+						contentType,
+					);
 					item.binary = item.binary || {};
 					item.binary['data'] = binaryData;
 					item.json = { fileId, fileName: filename } as IDataObject;
@@ -1618,9 +1783,17 @@ export class LaunixNode implements INodeType {
 
 				// Handle special operation: upload file from binary
 				if (operation === 'uploadFile') {
-					const binaryPropertyName = this.getNodeParameter('binaryPropertyName', itemIndex, 'data') as string;
+					const binaryPropertyName = this.getNodeParameter(
+						'binaryPropertyName',
+						itemIndex,
+						'data',
+					) as string;
 					if (!item.binary || !item.binary[binaryPropertyName]) {
-						throw new NodeOperationError(this.getNode(), `Binary property '${binaryPropertyName}' is missing on input item`, { itemIndex });
+						throw new NodeOperationError(
+							this.getNode(),
+							`Binary property '${binaryPropertyName}' is missing on input item`,
+							{ itemIndex },
+						);
 					}
 					const bin = item.binary[binaryPropertyName]!;
 					const buffer = await this.helpers.getBinaryDataBuffer(itemIndex, binaryPropertyName);
@@ -1635,15 +1808,19 @@ export class LaunixNode implements INodeType {
 						data: buffer as unknown as BinaryBuffer,
 					});
 
-					const result = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-						method: 'POST',
-						url,
-						body: payload.body,
-						headers: {
-							'Content-Type': `multipart/form-data; boundary=${payload.boundary}`,
+					const result = await this.helpers.httpRequestWithAuthentication.call(
+						this,
+						'launixCredentialsApi',
+						{
+							method: 'POST',
+							url,
+							body: payload.body,
+							headers: {
+								'Content-Type': `multipart/form-data; boundary=${payload.boundary}`,
+							},
+							json: true,
 						},
-						json: true,
-					});
+					);
 
 					if (result['error']) throw result['error'];
 					item.json = { uploaded: true, result } as IDataObject;
@@ -1658,8 +1835,13 @@ export class LaunixNode implements INodeType {
 					const actionParam = this.getNodeParameter('customAction', itemIndex, {}) as IDataObject;
 					const actionPath = (actionParam as any).value as string;
 					// User-provided parameter values for the action
-					const actionParamsWrapper = this.getNodeParameter('actionParams', itemIndex, { value: {} }) as IDataObject;
-					const actionParams = ((actionParamsWrapper as any).value || {}) as Record<string, string | number | boolean>;
+					const actionParamsWrapper = this.getNodeParameter('actionParams', itemIndex, {
+						value: {},
+					}) as IDataObject;
+					const actionParams = ((actionParamsWrapper as any).value || {}) as Record<
+						string,
+						string | number | boolean
+					>;
 					// Fallback for common param 'id'
 					const id = this.getNodeParameter('id', itemIndex, '') as string;
 
@@ -1689,7 +1871,8 @@ export class LaunixNode implements INodeType {
 					}
 					// Also merge any extra provided params not in descriptor (be permissive)
 					for (const [k, v] of Object.entries(actionParams)) {
-						if (!(k in finalParams) && v !== undefined && v !== null) finalParams[k] = String(v as any);
+						if (!(k in finalParams) && v !== undefined && v !== null)
+							finalParams[k] = String(v as any);
 					}
 					// Ensure id present if no descriptor but node has it
 					if (!('id' in finalParams) && id) finalParams['id'] = String(id);
@@ -1705,7 +1888,7 @@ export class LaunixNode implements INodeType {
 
 					const requestOptions: any = {
 						method,
-						headers: { 'Authorization': 'Bearer ' + credentials.token },
+						headers: { Authorization: 'Bearer ' + credentials.token },
 						json: false,
 						encoding: null,
 						resolveWithFullResponse: true,
@@ -1721,11 +1904,15 @@ export class LaunixNode implements INodeType {
 						requestOptions.body = finalParams;
 					}
 
-					const response = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-						...requestOptions,
-						url,
-						returnFullResponse: true,
-					});
+					const response = await this.helpers.httpRequestWithAuthentication.call(
+						this,
+						'launixCredentialsApi',
+						{
+							...requestOptions,
+							url,
+							returnFullResponse: true,
+						},
+					);
 					const headers = (response.headers || {}) as any;
 					const contentType = (headers['content-type'] as string | undefined) || '';
 					const rawBody = response.body;
@@ -1737,7 +1924,11 @@ export class LaunixNode implements INodeType {
 							const m = /filename\*=UTF-8''([^;]+)|filename=\"?([^";]+)\"?/i.exec(cd);
 							if (m) filename = decodeURIComponent(m[1] || m[2]);
 						}
-						const binaryData = await this.helpers.prepareBinaryData(response.body as any, filename, 'application/pdf');
+						const binaryData = await this.helpers.prepareBinaryData(
+							response.body as any,
+							filename,
+							'application/pdf',
+						);
 						item.binary = item.binary || {};
 						item.binary['data'] = binaryData;
 						item.json = { ok: true, fileName: filename, url } as IDataObject;
@@ -1751,10 +1942,7 @@ export class LaunixNode implements INodeType {
 							textBody = rawBody.trim();
 						}
 
-						if (
-							textBody &&
-							(/application\/json/i.test(contentType) || /^[\[{]/.test(textBody))
-						) {
+						if (textBody && (/application\/json/i.test(contentType) || /^[\[{]/.test(textBody))) {
 							try {
 								parsedBody = JSON.parse(textBody);
 							} catch {
@@ -1771,7 +1959,12 @@ export class LaunixNode implements INodeType {
 						} else if (parsedBody !== undefined && parsedBody !== null && parsedBody !== '') {
 							item.json = { payload: parsedBody } as IDataObject;
 						} else {
-							item.json = { ok: true, status: response.statusCode, contentType, url } as IDataObject;
+							item.json = {
+								ok: true,
+								status: response.statusCode,
+								contentType,
+								url,
+							} as IDataObject;
 						}
 					}
 					returnItems.push(item);
@@ -1782,7 +1975,9 @@ export class LaunixNode implements INodeType {
 				if (operation === 'view' || operation === 'edit' || operation === 'delete') {
 					const tablePath = await resolveTablePath(this, baseUrl, table);
 					if (!tablePath) {
-						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, {
+							itemIndex,
+						});
 					}
 					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/${operation}`;
 					url += '?id=' + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
@@ -1793,27 +1988,46 @@ export class LaunixNode implements INodeType {
 					const legacyTableParam = this.getNodeParameter('table', itemIndex, {}) as IDataObject;
 					const legacyTableId = getResourceLocatorValue(legacyTableParam);
 					const effectiveDataViewId = getEffectiveListDataViewId(dataViewId, legacyTableId);
-					const contextTableParam = this.getNodeParameter('contextTable', itemIndex, {}) as IDataObject;
+					const contextTableParam = this.getNodeParameter(
+						'contextTable',
+						itemIndex,
+						{},
+					) as IDataObject;
 					const contextTableId = getResourceLocatorValue(contextTableParam);
-					const dataViewPath = await resolveDataViewPath(this, baseUrl, effectiveDataViewId, contextTableId);
+					const dataViewPath = await resolveDataViewPath(
+						this,
+						baseUrl,
+						effectiveDataViewId,
+						contextTableId,
+					);
 					if (!dataViewPath) {
-						throw new NodeOperationError(this.getNode(), `DataView '${effectiveDataViewId}' was not found`, { itemIndex });
+						throw new NodeOperationError(
+							this.getNode(),
+							`DataView '${effectiveDataViewId}' was not found`,
+							{ itemIndex },
+						);
 					}
 					url = `${baseUrl}/${String(dataViewPath).replace(/^\/+/, '')}/list`;
 					const contextId = this.getNodeParameter('contextId', itemIndex, '') as string;
-					const paramsWrapper = this.getNodeParameter('dataViewParams', itemIndex, { value: null }) as IDataObject;
+					const paramsWrapper = this.getNodeParameter('dataViewParams', itemIndex, {
+						value: null,
+					}) as IDataObject;
 					const rawParams = paramsWrapper ? (paramsWrapper as any).value : null;
-					const resolvedParams = rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams)
-						? (replaceNullSentinel(rawParams) as IDataObject)
-						: {};
+					const resolvedParams =
+						rawParams && typeof rawParams === 'object' && !Array.isArray(rawParams)
+							? (replaceNullSentinel(rawParams) as IDataObject)
+							: {};
 					if (contextTableId && contextId !== '') {
 						resolvedParams.id = contextId;
 					}
-					const filtersWrapper = this.getNodeParameter('filterparams', itemIndex, { value: null }) as IDataObject;
+					const filtersWrapper = this.getNodeParameter('filterparams', itemIndex, {
+						value: null,
+					}) as IDataObject;
 					const rawFilters = filtersWrapper ? (filtersWrapper as any).value : null;
-					const resolvedFilters = rawFilters && typeof rawFilters === 'object' && !Array.isArray(rawFilters)
-						? (replaceNullSentinel(rawFilters) as IDataObject)
-						: {};
+					const resolvedFilters =
+						rawFilters && typeof rawFilters === 'object' && !Array.isArray(rawFilters)
+							? (replaceNullSentinel(rawFilters) as IDataObject)
+							: {};
 					const toQueryValue = (value: unknown): string | undefined => {
 						if (value === null || value === undefined) {
 							return undefined;
@@ -1862,34 +2076,50 @@ export class LaunixNode implements INodeType {
 				if (operation === 'create') {
 					const tablePath = await resolveTablePath(this, baseUrl, table);
 					if (!tablePath) {
-						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, {
+							itemIndex,
+						});
 					}
 					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/create`;
 				}
 				if (operation === 'edit' && !url) {
 					const tablePath = await resolveTablePath(this, baseUrl, table);
 					if (!tablePath) {
-						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, {
+							itemIndex,
+						});
 					}
-					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/edit?id=` + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
+					url =
+						`${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/edit?id=` +
+						encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
 				if (operation === 'delete' && !url) {
 					const tablePath = await resolveTablePath(this, baseUrl, table);
 					if (!tablePath) {
-						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, {
+							itemIndex,
+						});
 					}
-					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/delete?id=` + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
+					url =
+						`${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/delete?id=` +
+						encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
 				if (operation === 'view' && !url) {
 					const tablePath = await resolveTablePath(this, baseUrl, table);
 					if (!tablePath) {
-						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, { itemIndex });
+						throw new NodeOperationError(this.getNode(), `Table '${table}' was not found`, {
+							itemIndex,
+						});
 					}
-					url = `${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/view?id=` + encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
+					url =
+						`${baseUrl}/${String(tablePath).replace(/^\/+/, '')}/view?id=` +
+						encodeURIComponent(this.getNodeParameter('id', itemIndex, '') as string);
 				}
 				let preparedBody: IDataObject | null | undefined;
 				if (operation === 'create' || operation === 'edit') {
-					const columnsWrapper = this.getNodeParameter('columns', itemIndex, { value: null }) as IDataObject;
+					const columnsWrapper = this.getNodeParameter('columns', itemIndex, {
+						value: null,
+					}) as IDataObject;
 					const rawColumns = (columnsWrapper as any).value as IDataObject | null;
 					if (rawColumns !== null && rawColumns !== undefined) {
 						preparedBody = replaceNullSentinel(rawColumns) as IDataObject;
@@ -1898,11 +2128,19 @@ export class LaunixNode implements INodeType {
 					}
 
 					if (operation === 'create') {
-						const createListsWrapper = this.getNodeParameter('createLists', itemIndex, { value: null }) as IDataObject;
+						const createListsWrapper = this.getNodeParameter('createLists', itemIndex, {
+							value: null,
+						}) as IDataObject;
 						const rawCreateLists = createListsWrapper ? (createListsWrapper as any).value : null;
-						if (rawCreateLists && typeof rawCreateLists === 'object' && !Array.isArray(rawCreateLists)) {
+						if (
+							rawCreateLists &&
+							typeof rawCreateLists === 'object' &&
+							!Array.isArray(rawCreateLists)
+						) {
 							const parsedCreateLists: IDataObject = {};
-							for (const [createListId, rawValue] of Object.entries(rawCreateLists as IDataObject)) {
+							for (const [createListId, rawValue] of Object.entries(
+								rawCreateLists as IDataObject,
+							)) {
 								if (rawValue === null || rawValue === undefined) {
 									continue;
 								}
@@ -1921,7 +2159,11 @@ export class LaunixNode implements INodeType {
 									);
 								}
 								if (!Array.isArray(parsedList)) {
-									throw new NodeOperationError(this.getNode(), `Nested create list '${createListId}' must be a JSON array`, { itemIndex });
+									throw new NodeOperationError(
+										this.getNode(),
+										`Nested create list '${createListId}' must be a JSON array`,
+										{ itemIndex },
+									);
 								}
 								parsedCreateLists[createListId] = parsedList as any;
 							}
@@ -1933,12 +2175,17 @@ export class LaunixNode implements INodeType {
 					}
 				}
 
-				const result = await this.helpers.httpRequestWithAuthentication.call(this, 'launixCredentialsApi', {
-					method: operation === 'edit' || operation === 'create' ? 'POST' : 'GET',
-					url,
-					body: operation === 'edit' || operation === 'create' ? (preparedBody ?? null) : undefined,
-					json: true,
-				});
+				const result = await this.helpers.httpRequestWithAuthentication.call(
+					this,
+					'launixCredentialsApi',
+					{
+						method: operation === 'edit' || operation === 'create' ? 'POST' : 'GET',
+						url,
+						body:
+							operation === 'edit' || operation === 'create' ? (preparedBody ?? null) : undefined,
+						json: true,
+					},
+				);
 				if (result['error']) throw result['error'];
 
 				if (operation === 'delete') {
@@ -1970,9 +2217,12 @@ export class LaunixNode implements INodeType {
 						error.context.itemIndex = itemIndex;
 						throw error;
 					}
-					throw new NodeOperationError(this.getNode(), error, {
-						itemIndex,
-					});
+					if (error instanceof NodeOperationError) {
+						throw new NodeOperationError(this.getNode(), error.message, { itemIndex });
+					}
+					const nodeApiError = new NodeApiError(this.getNode(), error as JsonObject);
+					nodeApiError.context.itemIndex = itemIndex;
+					throw nodeApiError;
 				}
 			}
 		}

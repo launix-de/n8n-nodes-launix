@@ -41,7 +41,7 @@ export class LaunixCredentialsApi implements ICredentialType {
 			headers: {
 				//baseurl: '={{ $credentials.baseurl }}',
 				Authorization: '=Bearer {{ $credentials.token }}',
-			}
+			},
 		},
 	};
 
@@ -52,4 +52,3 @@ export class LaunixCredentialsApi implements ICredentialType {
 		},
 	};
 }
-
